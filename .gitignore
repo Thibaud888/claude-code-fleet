@@ -1,0 +1,7 @@
+# Transcripts bruts : restent locaux par defaut (risque de secrets colles en session).
+# Voir harvest/README.md (decision : l'archive reste locale, jamais poussee).
+harvest/archive/
+harvest/repos/
+harvest/logs/
+token.txt
+hc-key.txt

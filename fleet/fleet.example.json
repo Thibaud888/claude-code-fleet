@@ -1,0 +1,49 @@
+{
+  "_doc": "EXEMPLE de registre de flotte — copie ce fichier en fleet.json puis lance `node scripts/fleet.mjs` pour l'auto-remplir depuis GitHub. Champs manuels préservés d'un run à l'autre : type, statut, notes.",
+  "updated_at": "2026-01-01 00:00",
+  "kit_repo": "VOTRE-COMPTE/fleet-kit",
+  "repos": [
+    {
+      "repo": "claude-ops",
+      "type": "meta",
+      "visibility": "private",
+      "default_branch": "main",
+      "kit_version": null,
+      "crons": [],
+      "statut": "actif",
+      "notes": "Ce dépôt-outil (méta) : source de vérité sur la méthode."
+    },
+    {
+      "repo": "fleet-kit",
+      "type": "meta",
+      "visibility": "public",
+      "default_branch": "main",
+      "kit_version": null,
+      "crons": [],
+      "statut": "actif",
+      "notes": "Workflows réutilisables + templates de la flotte."
+    },
+    {
+      "repo": "mon-site",
+      "type": "static",
+      "visibility": "public",
+      "default_branch": "main",
+      "kit_version": "1.0.0",
+      "crons": [],
+      "statut": "actif",
+      "notes": "Exemple : un site déployé sur GitHub Pages."
+    },
+    {
+      "repo": "mon-cron",
+      "type": "cron-python",
+      "visibility": "private",
+      "default_branch": "main",
+      "kit_version": "1.0.0",
+      "crons": [
+        "veille.yml"
+      ],
+      "statut": "actif",
+      "notes": "Exemple : un job planifié (GitHub Actions), sous chien de garde + self-heal."
+    }
+  ]
+}

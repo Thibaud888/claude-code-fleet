@@ -1,0 +1,74 @@
+{
+  "_doc": "MODÈLE de ~/.claude/settings.json. ⚠️ Les commandes de statusLine et hooks exigent des CHEMINS ABSOLUS : un `~` entre guillemets n'est PAS expansé par le shell → hook mort silencieux (fail-open). Remplace <CHEMIN-ABSOLU-DU-CLONE> par ex. C:/Users/toi/vos-repos/claude-ops ou /home/toi/vos-repos/claude-ops, puis teste : node scripts/guard.test.mjs",
+  "autoUpdatesChannel": "latest",
+  "inputNeededNotifEnabled": true,
+  "agentPushNotifEnabled": true,
+  "tui": "fullscreen",
+  "statusLine": {
+    "type": "command",
+    "command": "node \"<CHEMIN-ABSOLU-DU-CLONE>/scripts/statusline.mjs\""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh issue:*)",
+      "Bash(gh label:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh repo clone:*)",
+      "Bash(gh secret list:*)",
+      "Bash(gh gist create:*)",
+      "Bash(gh api repos/VOTRE-COMPTE/:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh search:*)",
+      "Bash(npm run:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm install:*)",
+      "Bash(npx:*)",
+      "Bash(node:*)",
+      "Bash(pwsh:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(echo:*)",
+      "Bash(pwd)",
+      "Bash(wc:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<CHEMIN-ABSOLU-DU-CLONE>/scripts/guard.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"<CHEMIN-ABSOLU-DU-CLONE>/scripts/check.mjs\"",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

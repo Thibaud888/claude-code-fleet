@@ -1,0 +1,54 @@
+<h2 class="sr-only">Backlog de la flotte : items ouverts par repo, priorités et actions.</h2>
+<style>
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+#bk .card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.85rem 1.1rem;margin:0 0 10px}
+#bk .head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:6px}
+#bk .repo{font-family:var(--font-mono);font-size:15px;font-weight:500}
+#bk .badge{font-size:12px;padding:1px 10px;border-radius:999px}
+#bk .count{font-size:12px;color:var(--text-muted);margin-left:auto}
+#bk .item{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:0.5px solid var(--border)}
+#bk .p{font-size:12px;font-weight:500;padding:1px 8px;border-radius:999px;min-width:24px;text-align:center}
+#bk .t{flex:1;font-size:14px;cursor:pointer;min-width:0}
+#bk .t .no{color:var(--text-muted);font-family:var(--font-mono);font-size:12px;margin-right:6px}
+#bk .d{display:none;font-size:13px;color:var(--text-secondary);margin:2px 0 6px;padding-left:44px;line-height:1.5}
+#bk .act{display:flex;gap:4px}
+#bk .act button{padding:3px 7px;font-size:15px;line-height:1}
+#bk-empty{font-size:13px;color:var(--text-muted);margin:2px 0 12px}
+#bk-bar{display:flex;gap:8px;flex-wrap:wrap}
+#bk-bar button{font-size:13px}
+</style>
+<div id="bk"></div>
+<p id="bk-empty"></p>
+<div id="bk-bar">
+<button data-g="ajoute">Ajouter un item ↗</button>
+<button data-g="prio">Prioriser ↗</button>
+<button data-g="">Actualiser ↗</button>
+</div>
+<script>
+const DATA={repos:[],empty:[]};
+const PC={P1:"danger",P2:"warning",P3:"accent"};
+const ORD={P1:0,P2:1,P3:2};
+const esc=s=>s==null?"":String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const chip=p=>PC[p]?`<span class="p" style="background:var(--bg-${PC[p]});color:var(--text-${PC[p]})">${p}</span>`
+:`<span class="p" style="background:var(--surface-1);color:var(--text-muted)">–</span>`;
+document.getElementById("bk").innerHTML=DATA.repos.map(r=>{
+const items=[...r.items].sort((a,b)=>(ORD[a.p]??3)-(ORD[b.p]??3)||a.n-b.n);
+const badges=(r.session?'<span class="badge" style="background:var(--bg-accent);color:var(--text-accent)">session en cours</span>':"")
++(r.equipped?"":'<span class="badge" style="background:var(--bg-warning);color:var(--text-warning)">non équipé</span>');
+return `<div class="card"><div class="head"><span class="repo">${esc(r.name)}</span>${badges}<span class="count">${items.length} item${items.length>1?"s":""}</span></div>`
++items.map(it=>`<div class="item">${chip(it.p)}<span class="t"><span class="no">${it.n}</span>${esc(it.t)}</span><span class="act">`
++`<button data-g="${esc(r.name)} ${it.n}" title="Traiter ici" aria-label="Traiter ici"><i class="ti ti-player-play" aria-hidden="true"></i></button>`
++`<button data-g="${esc(r.name)} ${it.n} cloud" title="Envoyer en session cloud" aria-label="Envoyer en session cloud"><i class="ti ti-cloud" aria-hidden="true"></i></button>`
++`<button data-g="${esc(r.name)} ${it.n} voir" title="Voir le détail et le prompt" aria-label="Voir le détail"><i class="ti ti-eye" aria-hidden="true"></i></button>`
++`<button data-g="${esc(r.name)} ${it.n} suppr" title="Retirer du backlog" aria-label="Retirer du backlog"><i class="ti ti-trash" aria-hidden="true"></i></button>`
++`</span></div><div class="d">${esc(it.d)||"<em>pas de détail</em>"}</div>`).join("")
++`</div>`;
+}).join("");
+if(DATA.empty&&DATA.empty.length)document.getElementById("bk-empty").textContent="Sans item ouvert : "+DATA.empty.join(" · ");
+document.addEventListener("click",e=>{
+const b=e.target.closest("button[data-g]");
+if(b){sendPrompt(("/backlog "+b.dataset.g).trim());return}
+const t=e.target.closest("#bk .t");
+if(t){const d=t.parentElement.nextElementSibling;if(d)d.style.display=d.style.display==="block"?"none":"block"}
+});
+</script>
