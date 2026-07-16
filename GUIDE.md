@@ -417,9 +417,9 @@ Le Cloud est ton activité dominante, mais éphémère. `harvest` en garde une t
 
 - **Principe** : chaque PR créée en session Cloud contient une URL `claude.ai/code/session_<id>`
   → on peut **inventorier** puis **rapatrier** les transcripts.
-- **Rythme** : moisson hebdomadaire le dimanche soir (procédure navigateur validée dans
-  [`harvest/README.md`](harvest/README.md), via l'extension *Claude in Chrome*). La voie CLI est
-  une impasse ; la voie navigateur marche.
+- **Rythme** : moisson hebdomadaire le dimanche soir — un **snippet collé dans la console du
+  navigateur** ([`harvest-console.js`](harvest/harvest-console.js), 0 token, aucun modèle dans
+  la boucle) ; procédure : [`harvest/README.md`](harvest/README.md).
 - **Décision durable** : l'archive **reste locale** (`archive/` est gitignorée) — les
   transcripts peuvent contenir des secrets collés en session. C'est pour ça que la **revue
   mensuelle tourne en local** : elle peut la lire.
@@ -529,6 +529,7 @@ claude-ops/
 ├── .claude/skills/           ← /backlog /dispatch (versionnées → lues aussi en session Cloud)
 ├── skills/                   ← /equiper /nouveau-projet (outils locaux)
 │   └── <skill>/SKILL.md      ← (/bilan /handoff /reprends : désormais dans fleet-kit, posées par /equiper)
+├── examples/workflows/       ← workflows d'exemple, livrés INERTES (brief, dispatch, codex — à activer)
 ├── harvest/                  ← moisson + archive des sessions Cloud
 │   ├── README.md             ← procédure de moisson hebdo
 │   └── archive/              ← transcripts (gitignoré, local)

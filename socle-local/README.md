@@ -23,7 +23,7 @@
 # depuis la racine du repo claude-ops — renomme les modèles en retirant .example
 Copy-Item socle-local\CLAUDE.example.md     $HOME\.claude\CLAUDE.md -Force
 Copy-Item socle-local\settings.example.json $HOME\.claude\settings.json -Force
-# puis remplace dans ces deux fichiers les placeholders <VOTRE-COMPTE> et ~/vos-repos.
+# puis remplace dans ces deux fichiers les placeholders VOTRE-COMPTE et ~/vos-repos.
 ```
 
 Après restauration, ouvrir une session neuve et demander « qui suis-je et comment je travaille ? » :

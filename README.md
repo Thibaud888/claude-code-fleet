@@ -6,8 +6,10 @@
 > les traces. Objectif affiché : **passer de « une session à la fois, tout retapé à la main »
 > à « chef d'orchestre d'une flotte briefée, automatisée et surveillée ».**
 
-> ℹ️ **Ce dépôt est un extrait anonymisé, publié comme modèle.** C'est le vrai système d'une
-> personne, dont on a retiré l'état privé (registre réel, backlog, rapports, mémoire, dépense)
+> ℹ️ **Ce dépôt est un extrait anonymisé, publié comme modèle.** Le dépôt public s'appelle
+> `claude-code-fleet` ; le système qu'il documente s'appelle **`claude-ops`** — c'est le nom
+> à donner à ton clone adapté. C'est le vrai système d'une personne, dont on a retiré l'état
+> privé (registre réel, backlog, rapports, mémoire, dépense)
 > pour ne garder que **la méthode et l'outillage réutilisables**. Deux jetons se remplacent
 > partout par un simple find/replace : `VOTRE-COMPTE` (ton compte GitHub) et `~/vos-repos`
 > (ton dossier de clones) ; quelques champs libres utilisent `<…>`. Les fichiers de
@@ -60,19 +62,24 @@ socle-local/             ← modèle de ~/.claude : CLAUDE.example.md, settings.
   check du projet après chaque édition, réinjecte seulement les échecs). 0 token.
 - **Des scripts d'orchestration** : auto-découverte du registre, collecte du brief en un appel,
   bilan tokens, notifications ntfy, purge de gists.
-- **Des commandes maison (skills)** : `/backlog`, `/dispatch`, `/equiper`, `/nouveau-projet`.
+- **Des commandes maison (skills)** : `/backlog`, `/dispatch`, `/equiper`, `/nouveau-projet`
+  (+ `/bilan`, `/handoff`, `/reprends` — livrées par `fleet-kit` sur chaque repo équipé).
 
 > 🔗 **Dépôt compagnon :** [`fleet-kit`](https://github.com/Thibaud888/fleet-kit) (public)
 > héberge les **workflows GitHub Actions réutilisables** + les templates posés sur chaque repo
 > « équipé ». Améliorer une fois → toute la flotte en profite. Il n'est **pas inclus** dans cet
 > extrait : **forke-le**, remplace la garde `github.actor` de son `dispatch.yml` par ton compte,
-> et référence TON fork (`uses: <ton-compte>/fleet-kit/...`) dans les stubs.
+> et référence TON fork (`uses: VOTRE-COMPTE/fleet-kit/...`) dans les stubs.
 
 ## ⚡ Essai à blanc (2 minutes, sans rien configurer)
 
 ```bash
-node scripts/guard.test.mjs                       # la suite du hook anti push-main / anti-secrets (17 cas)
-FLEET_OWNER=<ton-compte> node scripts/fleet.mjs   # génère fleet/fleet.json depuis TES repos (gh requis)
+node scripts/guard.test.mjs      # la suite du hook anti push-main / anti-secrets (17 cas, hors ligne)
+
+# Génère fleet/fleet.json depuis TES repos (gh requis) — bash :
+FLEET_OWNER=VOTRE-COMPTE node scripts/fleet.mjs
+# …ou PowerShell :
+$env:FLEET_OWNER='VOTRE-COMPTE'; node scripts/fleet.mjs
 ```
 
 ## 🔧 Adapter à ton usage
@@ -81,8 +88,9 @@ Rien à faire tourner en aveugle : ce dépôt est un point de départ à personn
 
 0. **Forke [`fleet-kit`](https://github.com/Thibaud888/fleet-kit)** (le dispatch en dépend) et
    remplace la garde `github.actor` de son `dispatch.yml` par ton compte.
-1. **Remplace les placeholders** — un find/replace global suffit :
-   `grep -rl VOTRE-COMPTE . | xargs sed -i 's/VOTRE-COMPTE/ton-compte/g'` (idem `~/vos-repos`).
+1. **Remplace les placeholders** — un find/replace global sur les fichiers suivis :
+   `git ls-files -z | xargs -0 sed -i 's/VOTRE-COMPTE/ton-compte/g'` (macOS : `sed -i ''` ;
+   idem pour `~/vos-repos`).
    Les scripts d'orchestration acceptent aussi l'env `FLEET_OWNER` sans rien éditer.
    💡 Nomme ton clone **`claude-ops`** (ou ajoute son nom à `META_REPOS` dans
    `scripts/guard.mjs`) : le hook n'autorise le commit direct sur `main` qu'aux repos méta.

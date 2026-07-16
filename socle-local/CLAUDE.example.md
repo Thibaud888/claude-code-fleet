@@ -42,17 +42,17 @@
   CI rouge (la PR reste alors ouverte, jamais mergée à l'aveugle).
 - Messages de commit **en français**.
 - Déploiements habituels : **GitHub Pages**, **Render**, **GitHub Actions** (crons).
-- Compte GitHub : **`<VOTRE-COMPTE>`** (`gh` déjà authentifié).
+- Compte GitHub : **`VOTRE-COMPTE`** (`gh` déjà authentifié).
 - **En fin de session significative** : mettre à jour le `BACKLOG.md` du repo concerné
   (statut + lien PR) — ou `/bilan`.
 
 ## Source de vérité & flotte
-- **`<VOTRE-COMPTE>/claude-ops`** (privé) — clone local : `~/vos-repos/claude-ops`
+- **`VOTRE-COMPTE/claude-ops`** (privé) — clone local : `~/vos-repos/claude-ops`
   = comment je travaille avec Claude Code. Points d'entrée : `rapport/diagnostic.md`,
   `chantiers/BACKLOG.md`.
 - **Registre de flotte** : `claude-ops/fleet/fleet.json` — **LA** liste de mes repos (types,
   crons, version du kit). Rafraîchir : `node scripts/fleet.mjs`. Ne jamais maintenir de liste
   de repos en dur ailleurs.
-- **`<VOTRE-COMPTE>/fleet-kit`** (public) — workflows réutilisables + templates de la flotte.
+- **`VOTRE-COMPTE/fleet-kit`** (public) — workflows réutilisables + templates de la flotte.
   Un repo s'équipe/se met à niveau avec **`/equiper <repo>`** ; un projet naît équipé avec
   **`/nouveau-projet <nom>`**.
