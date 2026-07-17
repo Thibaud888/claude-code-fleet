@@ -1,5 +1,8 @@
 # Transcripts bruts : restent locaux par defaut (risque de secrets colles en session).
 # Voir harvest/README.md (decision : l'archive reste locale, jamais poussee).
+#
+# NB : fleet/fleet.json est versionne VOLONTAIREMENT (les sessions Cloud le lisent depuis
+# le repo clone) — il revele la liste de tes repos : garde ton instance adaptee en PRIVE.
 harvest/archive/
 harvest/repos/
 harvest/logs/

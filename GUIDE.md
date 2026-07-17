@@ -240,8 +240,8 @@ dans chaque repo, `fleet-kit` (public) héberge des **workflows réutilisables**
 kit met à niveau toute la flotte d'un coup.
 
 Ce que le kit pose sur un repo équipé : `CLAUDE.md`, `MAP.md`, `BACKLOG.md`, allowlist
-`.claude/settings.json`, stubs de workflows (`map.yml`, `claude.yml`, `self-heal.yml`, `ci.yml`
-ou `pages.yml`), labels, `.kit-version`.
+`.claude/settings.json`, stubs de workflows (`map.yml`, `claude.yml`, `self-heal.yml`,
+`pr-ready.yml` — l'auto-merge —, `ci.yml` ou `pages.yml`), labels, `.kit-version`.
 
 > 💰 **Garde anti-gaspillage sur MAP** (2026-07-11) : à chaque push sur `main`, `map.yml` ne
 > lance une session Haiku **que si le diff depuis la dernière carte le justifie** (fichiers
@@ -366,6 +366,12 @@ flowchart TB
 
 Ce qui tourne tout seul, et **où** ça tourne (c'est important : certaines tâches sont locales et
 ne s'exécutent que quand ton app/ta machine est allumée).
+
+> ℹ️ Calendrier de l'**instance complète**. Dans cet extrait sont livrés : les workflows
+> (inertes, `examples/workflows/`), `hygiene.ps1` et les scripts de collecte. Les **tâches
+> planifiées locales de l'app** (`revue-mensuelle-flotte`, `bilan-tokens-hebdo`) ne sont pas
+> incluses — leurs prompts vivent dans l'app Claude Code ; seuls leurs scripts de collecte
+> (`tokens-hebdo.mjs`) sont là.
 
 | Automatisation | Quand | Où | Rôle |
 |---|---|---|---|

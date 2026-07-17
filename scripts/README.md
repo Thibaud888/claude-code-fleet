@@ -30,6 +30,7 @@ node scripts/fleet.mjs
 Tous **fail-open** : un hook cassé ne bloque jamais une session. Vérif de `guard.mjs` :
 `node scripts/guard.test.mjs` (repos git jetables + rejeu d'entrées de hook, 17 cas). Test manuel :
 `echo '{"tool_input":{"command":"git push origin main"},"cwd":"<repo projet>"}' | node scripts/guard.mjs`
+⚠️ Chemin `cwd` avec des **slashs** (`C:/…`) : des backslashes = JSON invalide → fail-open « autorisé ».
 
 ## `hygiene.ps1` — hygiène GitHub hebdomadaire
 
@@ -71,6 +72,9 @@ accède au trousseau Windows).
 ### (Re)créer la tâche
 ```powershell
 $scriptPath = "$HOME\vos-repos\claude-ops\scripts\hygiene.ps1"
+# Ping Healthchecks : une tâche planifiée n'hérite PAS des variables de ta console —
+# poser l'URL au niveau utilisateur (sinon pas de ping, jamais d'alerte de retard) :
+[Environment]::SetEnvironmentVariable("HEALTHCHECK_URL_HYGIENE", "<url hc-ping du check>", "User")
 $action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
 $trigger   = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday -At 9:00am
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
@@ -91,7 +95,7 @@ Unregister-ScheduledTask -TaskName "ClaudeOps-HygieneGitHub" -Confirm:$false   #
 
 | Script | Rôle | Prérequis |
 |---|---|---|
-| `brief-data.mjs` | collecte du brief quotidien en **1 appel** (PRs, échecs 24 h, issues `claude`, Healthchecks) | `gh` authentifié · `fleet/fleet.json` présent (généré par `fleet.mjs`) · clé API dans env `HEALTHCHECKS_API_KEY` ou fichier `~/.claude/healthchecks-api-key` · `BRIEF_CLOUD=1` sur runner cloud |
+| `brief-data.mjs` | collecte du brief quotidien en **1 appel** (PRs, échecs 24 h, issues `claude`, Healthchecks) | `gh` authentifié · `fleet/fleet.json` présent (généré par `fleet.mjs`) · clé API dans env `HEALTHCHECKS_API_KEY` ou fichier `~/.claude/healthchecks-api-key` · en local `npx ccusage` (réseau) pour le volet usage · `BRIEF_CLOUD=1` sur runner cloud (saute ce volet) |
 | `tokens-hebdo.mjs` | bilan tokens hebdo (local ccusage + cloud Actions) | `npx ccusage` (réseau) · `gh` authentifié · `fleet/fleet.json` |
 | `ntfy.mjs` | notification téléphone (`node scripts/ntfy.mjs "titre" "corps"`) | topic dans env `NTFY_TOPIC` ou fichier `~/.claude/ntfy-topic` |
 | `statusline.mjs` | statusline Claude Code (% de contexte) | aucun — lit le JSON du harness sur stdin |

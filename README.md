@@ -87,10 +87,12 @@ $env:FLEET_OWNER='VOTRE-COMPTE'; node scripts/fleet.mjs
 Rien à faire tourner en aveugle : ce dépôt est un point de départ à personnaliser.
 
 0. **Forke [`fleet-kit`](https://github.com/Thibaud888/fleet-kit)** (le dispatch en dépend) et
-   remplace la garde `github.actor` de son `dispatch.yml` par ton compte.
+   remplace la garde `github.actor` par ton compte **partout** dans le fork (`grep -rn github.actor`) :
+   au minimum `dispatch.yml` (le dispatch) **et** `pr-ready.yml` (l'auto-merge — sinon tes PR
+   ne se mergeront jamais, en silence).
 1. **Remplace les placeholders** — un find/replace global sur les fichiers suivis :
-   `git ls-files -z | xargs -0 sed -i 's/VOTRE-COMPTE/ton-compte/g'` (macOS : `sed -i ''` ;
-   idem pour `~/vos-repos`).
+   `git ls-files -z | xargs -0 sed -i 's/VOTRE-COMPTE/ton-compte/g'` (macOS : `sed -i ''`).
+   Pour `~/vos-repos`, change de délimiteur : `sed -i 's#~/vos-repos#/ton/dossier#g'`.
    Les scripts d'orchestration acceptent aussi l'env `FLEET_OWNER` sans rien éditer.
    💡 Nomme ton clone **`claude-ops`** (ou ajoute son nom à `META_REPOS` dans
    `scripts/guard.mjs`) : le hook n'autorise le commit direct sur `main` qu'aux repos méta.
@@ -101,9 +103,14 @@ Rien à faire tourner en aveugle : ce dépôt est un point de départ à personn
    entre guillemets n'est pas expansé → hook mort **silencieux**, ils sont fail-open).
    Vérifie : `node scripts/guard.test.mjs`, puis en conditions réelles :
    `echo '{"tool_input":{"command":"git push origin main"},"cwd":"<un repo projet>"}' | node scripts/guard.mjs`
+   ⚠️ Sous Windows, écris le chemin avec des slashs (`C:/…`) : des backslashes rendraient le
+   JSON invalide → le hook fail-open répond « autorisé » et tu conclurais à tort qu'il est mort.
 4. **Prépare GitHub** : labels `claude` / `claude:haiku` / `idée` / `à-préciser` ; un Project
    utilisateur « Flotte » (kanban du dispatch) ; le réglage par repo « Actions peut créer des
-   PR » ; un PAT fine-grained `FLEET_GH_TOKEN` (contents RW sur ta flotte) ; les secrets
+   PR » ; un PAT fine-grained `FLEET_GH_TOKEN` sur ta flotte — contents **RW**, et en lecture
+   pull-requests / actions / issues (le brief lit PRs, runs et issues ; NB : `gh gist create`
+   n'est pas couvert par les PAT fine-grained → token classique avec scope `gist` si tu actives
+   le gist du brief) ; les secrets
    `CLAUDE_CODE_OAUTH_TOKEN` (via `claude setup-token`), `NTFY_TOPIC`, `HEALTHCHECKS_API_KEY`
    selon ce que tu actives. En local : env `HEALTHCHECK_URL_HARVEST` / `HEALTHCHECK_URL_HYGIENE`.
 5. **Active les workflows** en dernier : copie `examples/workflows/*.yml` vers

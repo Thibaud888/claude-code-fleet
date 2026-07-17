@@ -33,7 +33,7 @@ Copier depuis `fleet-kit/templates/common/` puis `templates/<type>/`, **sans éc
   **session Cloud** (elles sont alors versionnées dans le repo, pas seulement en local). Idempotent :
   écraser la version existante de **ces trois skills du kit** (elles évoluent avec le kit), mais
   **ne jamais toucher** à un skill maison propre au repo (tout skill de nom différent).
-- **Stubs de workflows** (`map.yml`, `claude.yml`, `self-heal.yml`, `ci.yml`/`pages.yml`) →
+- **Stubs de workflows** (`map.yml`, `claude.yml`, `self-heal.yml`, `pr-ready.yml`, `ci.yml`/`pages.yml`) →
   remplacer uniquement si le fichier existant commence par `# Stub flotte` (c'est une ancienne
   version du kit) ; sinon le laisser et le signaler dans la restitution.
 - **`self-heal.yml`** : seulement si le repo a des crons ; remplacer `<NOM_DU_WORKFLOW_CRON>`

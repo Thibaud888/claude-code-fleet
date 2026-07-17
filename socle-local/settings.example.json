@@ -27,7 +27,6 @@
       "Bash(npm install:*)",
       "Bash(npx:*)",
       "Bash(node:*)",
-      "Bash(pwsh:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(rg:*)",

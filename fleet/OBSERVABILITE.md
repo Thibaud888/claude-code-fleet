@@ -19,14 +19,15 @@
 
 Un check par tâche planifiée. La tâche **pingue** son URL à chaque run (succès, ou `/fail`) ;
 si le ping n'arrive pas dans les temps (retard, cron désactivé par GitHub après 60 j
-d'inactivité, machine éteinte…), Healthchecks alerte. Grâce : 6 h partout.
+d'inactivité, machine éteinte…), Healthchecks alerte. Grâce : 6 h (24 h pour la moisson hebdo).
 
 | Check | Planning | Pingé par |
 |---|---|---|
 | `mon-cron-node/publish` | tous les jours 14h30 UTC | job `ping` du workflow |
 | `mon-cron-python/veille` | lundi + jeudi 10h UTC | job `ping` du workflow |
 | `mon-autre-cron/weekly-digest` | mardi 7h UTC | job `ping` du workflow |
-| `claude-ops/hygiene-hebdo` | lundi 9h (Europe/Paris) | fin de `scripts/hygiene.ps1` (local) |
+| `claude-ops/hygiene-hebdo` | lundi 9h (Europe/Paris) | fin de `scripts/hygiene.ps1` (env `HEALTHCHECK_URL_HYGIENE`) |
+| `claude-ops/harvest-hebdo` | dimanche 22h (grâce 24 h) | fin de `harvest/split-harvest.mjs` (env `HEALTHCHECK_URL_HARVEST`) |
 
 - **Ajouter un check** (nouveau cron) : API v3 avec la clé (Settings → API access),
   `POST https://healthchecks.io/api/v3/checks/` avec `{"name","schedule","tz","grace":21600,
