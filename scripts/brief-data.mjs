@@ -1,14 +1,24 @@
 #!/usr/bin/env node
-// Collecte TOUTES les données du brief quotidien en un seul appel d'outil (économie de
-// tokens : ~30-45 appels gh dont les sorties JSON entraient chaque jour dans le contexte
+// Collecte TOUTES les données du brief hebdo en un seul appel d'outil (économie de
+// tokens : ~30-45 appels gh dont les sorties JSON entreraient dans le contexte
 // de la session → 1 appel, 1 JSON compact ; Claude ne fait plus que rédiger).
 //
-// Sort sur stdout un JSON avec uniquement ce qui mérite attention :
+// Sort sur stdout un JSON en deux volets :
+// ÉTAT à l'instant T (le « reste à traiter ») :
 //   - PRs ouvertes par repo actif (avec âge en jours) ;
-//   - runs en échec des dernières 24 h (crons prioritaires marqués) ;
-//   - issues `claude` ouvertes (avec âge et présence d'une PR liée si > 24 h) ;
-//   - chiens de garde Healthchecks en late/down + état du check harvest-hebdo ;
-//   - usage local Claude Code (ccusage, coût équivalent API) : hier + 7 derniers jours.
+//   - workflows dont le dernier run terminé est en échec (crons marqués) ; un échec suivi
+//     d'un run vert part dans repares_24h (« réparé depuis »), pas en alerte ;
+//   - issues `claude` ouvertes (avec âge et présence d'une PR liée) ;
+//   - dispatchs EN RADE (dispatch_en_rade) : issue `claude` > 1 h sans PR ni session en cours,
+//     et PR de session (`claude/*`) ouverte que rien ne bloque — cf. scripts/brief-rade.mjs ;
+//   - chiens de garde Healthchecks en late/down + état du check harvest (moisson mensuelle).
+// SEMAINE écoulée (le « traité » + l'activité) :
+//   - PRs mergées 7 j (toutes, avec repo) et issues `claude` fermées 7 j (avec modèle) ;
+//   - sessions cloud 7 j par repo et par workflow (proxy d'activité : les tokens des
+//     sessions d'abonnement ne sont pas mesurables) + minutes de runs ;
+//   - part méta (pct_meta_7j) : PRs mergées sur claude-ops/fleet-kit/fleetview vs projets ;
+//   - usage local Claude Code (ccusage, coût équivalent API) — sauté si BRIEF_CLOUD=1
+//     (le brief cloud lit à la place le dernier rapport versionné rapport/tokens/).
 //
 // Usage : node scripts/brief-data.mjs   (prérequis : gh CLI authentifié)
 import { exec, execFile } from "node:child_process";
@@ -17,6 +27,7 @@ import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { detecteRade, estPrDeSession, issueDeLaBranche, synthetiseChecks } from "./brief-rade.mjs";
 
 const pExecFile = promisify(execFile);
 const pExec = promisify(exec);
@@ -54,35 +65,80 @@ const ageHeures = (iso) => Math.floor((MAINTENANT - Date.parse(iso)) / 3_600_000
 const fleet = JSON.parse(readFileSync(join(ROOT, "fleet", "fleet.json"), "utf8"));
 const actifs = fleet.repos.filter((r) => r.statut === "actif");
 
-// ---------- 2. PRs + échecs de runs par repo (parallèle, plafond 6) ----------
+// ---------- 2. PRs + état courant des workflows par repo (parallèle, plafond 6) ----------
+const CONCLUSIONS_ECHEC = new Set(["failure", "startup_failure", "timed_out"]);
 const parRepo = await enParallele(actifs, 6, async (r) => {
   const [prsRaw, runsRaw] = await Promise.all([
-    gh(["pr", "list", "--repo", `${OWNER}/${r.repo}`, "--json", "number,title,isDraft,createdAt,url"]),
-    gh(["run", "list", "--repo", `${OWNER}/${r.repo}`, "--status", "failure", "--limit", "8",
-      "--json", "workflowName,createdAt,url,event"]),
+    gh(["pr", "list", "--repo", `${OWNER}/${r.repo}`,
+      "--json", "number,title,isDraft,createdAt,url,headRefName,author,statusCheckRollup"]),
+    gh(["run", "list", "--repo", `${OWNER}/${r.repo}`, "--limit", "40",
+      "--json", "workflowName,status,conclusion,createdAt,updatedAt,url"]),
   ]);
+  const runsList = runsRaw ? JSON.parse(runsRaw) : [];
   const prs = (prsRaw ? JSON.parse(prsRaw) : []).map((p) => ({
-    n: p.number, titre: p.title, age_j: ageJours(p.createdAt), draft: p.isDraft, url: p.url,
+    n: p.number, titre: p.title, age_j: ageJours(p.createdAt), age_h: ageHeures(p.createdAt),
+    draft: p.isDraft, url: p.url,
+    // Suivi de dispatch : une PR de session porte une branche `claude/…` (voir brief-rade.mjs).
+    session: estPrDeSession(p.headRefName, p.author), issue: issueDeLaBranche(p.headRefName),
+    checks: synthetiseChecks(p.statusCheckRollup),
   }));
   // « Publish Shorts » (nom du workflow) doit matcher « publish-shorts.yml » (nom du fichier)
   const slug = (s) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
   const cronsDuRepo = (r.crons ?? []).map((c) => slug(c.replace(/\.ya?ml$/, "")));
-  // Regrouper les échecs répétés d'un même workflow : 1 entrée avec compteur + dernier run
-  const echecsParWf = new Map();
-  for (const run of (runsRaw ? JSON.parse(runsRaw) : []).filter((run) => ageHeures(run.createdAt) < 24)) {
-    const existant = echecsParWf.get(run.workflowName);
-    if (existant) { existant.n += 1; continue; } // runs triés du plus récent au plus ancien
-    echecsParWf.set(run.workflowName, {
-      wf: run.workflowName,
-      cron: cronsDuRepo.includes(slug(run.workflowName)),
-      n: 1,
-      dernier_il_y_a_h: ageHeures(run.createdAt),
-      url: run.url,
-    });
+  // État à l'instant T : le DERNIER run terminé de chaque workflow fait foi.
+  const runsParWf = new Map();
+  // Activité de la semaine : runs terminés < 7 j par workflow (limite 40 runs/repo : une
+  // semaine très chargée peut être sous-comptée — proxy, pas une compta exacte).
+  const sessions7j = {};
+  const runsActifs = [];
+  let minutes7j = 0;
+  for (const run of runsList) {
+    if (run.status !== "completed") {
+      // Run en cours : l'état du workflow reste le dernier terminé, mais une session vivante
+      // absout une issue `claude` sans PR (elle est peut-être en train de la produire).
+      // Passé 3 h, un run « in_progress » est coincé, pas actif — il n'absout plus rien.
+      if (ageHeures(run.createdAt) < 3) runsActifs.push(run.workflowName);
+      continue;
+    }
+    if (!runsParWf.has(run.workflowName)) runsParWf.set(run.workflowName, []);
+    runsParWf.get(run.workflowName).push(run); // gh trie du plus récent au plus ancien
+    if (ageJours(run.createdAt) < 7) {
+      sessions7j[run.workflowName] = (sessions7j[run.workflowName] ?? 0) + 1;
+      if (run.updatedAt) minutes7j += Math.max(0, (Date.parse(run.updatedAt) - Date.parse(run.createdAt)) / 60_000);
+    }
   }
-  return { repo: r.repo, prs, echecs_24h: [...echecsParWf.values()] };
+  const enEchec = [];
+  const repares24h = [];
+  for (const [wf, runs] of runsParWf) {
+    const cron = cronsDuRepo.includes(slug(wf));
+    const dernier = runs[0];
+    if (CONCLUSIONS_ECHEC.has(dernier.conclusion)) {
+      // Cron cassé = à traiter quel que soit l'âge ; hors cron, on ne remonte que le récent
+      // (le vieil échec de CI d'une branche abandonnée n'est pas un état de la flotte).
+      if (!cron && ageHeures(dernier.createdAt) >= 24) continue;
+      let echecsConsecutifs = 0;
+      for (const run of runs) {
+        if (!CONCLUSIONS_ECHEC.has(run.conclusion)) break;
+        echecsConsecutifs += 1;
+      }
+      enEchec.push({
+        wf, cron, echecs_consecutifs: echecsConsecutifs,
+        dernier_il_y_a_h: ageHeures(dernier.createdAt), url: dernier.url,
+      });
+    } else if (dernier.conclusion === "success" &&
+        runs.some((run) => CONCLUSIONS_ECHEC.has(run.conclusion) && ageHeures(run.createdAt) < 24)) {
+      repares24h.push({ wf, cron, repare_il_y_a_h: ageHeures(dernier.createdAt) });
+    }
+  }
+  return { repo: r.repo, prs, en_echec: enEchec, repares_24h: repares24h,
+    runs_actifs: runsActifs, sessions_7j: sessions7j, minutes_7j: Math.round(minutes7j) };
 });
-const repos = parRepo.filter((r) => r.prs.length || r.echecs_24h.length);
+const repos = parRepo
+  .filter((r) => r.prs.length || r.en_echec.length || r.repares_24h.length)
+  .map(({ sessions_7j, minutes_7j, runs_actifs, ...etat }) => etat);
+const sessionsCloud7j = parRepo
+  .filter((r) => Object.keys(r.sessions_7j).length)
+  .map((r) => ({ repo: r.repo, minutes: r.minutes_7j, par_workflow: r.sessions_7j }));
 
 // ---------- 3. Issues `claude` ouvertes ----------
 let issuesClaude = [];
@@ -93,13 +149,50 @@ if (issuesRaw) {
     repo: i.repository?.name, n: i.number, titre: i.title,
     age_h: ageHeures(i.createdAt), url: i.url,
   }));
-  // Pour les issues > 24 h : une PR liée existe-t-elle ? (session probablement plantée sinon)
-  await enParallele(issuesClaude.filter((i) => i.age_h > 24).slice(0, 10), 4, async (i) => {
+  // Une PR liée existe-t-elle ? (sinon la session est probablement plantée). Seuil 1 h : en
+  // deçà, la session a le droit d'être encore en train de travailler.
+  // D'abord sans le moindre appel : une PR ouverte sur la branche `claude/issue-<n>` du repo.
+  const prsOuvertesParRepo = new Map(parRepo.map((r) => [r.repo, r.prs]));
+  for (const i of issuesClaude) {
+    i.pr_liee = (prsOuvertesParRepo.get(i.repo) ?? []).some((p) => p.issue === i.n);
+  }
+  // Repli pour les autres : la PR peut être déjà mergée (le merge auto ne fermait pas
+  // l'issue avant fleet-kit#5) ou porter une branche hors convention.
+  await enParallele(issuesClaude.filter((i) => i.age_h >= 1 && !i.pr_liee).slice(0, 12), 4, async (i) => {
     const pr = await gh(["pr", "list", "--repo", `${OWNER}/${i.repo}`,
       "--search", `Closes #${i.n}`, "--json", "number", "--state", "all"], { ok404: true });
     i.pr_liee = !!(pr && JSON.parse(pr).length);
   });
 }
+
+// ---------- 3ter. Dispatchs en rade (suivi méta-agent du lot de la veille) ----------
+const dispatchEnRade = detecteRade({ repos: parRepo, issues: issuesClaude, seuilH: 1 });
+
+// ---------- 3bis. Semaine écoulée : PRs mergées + issues `claude` fermées ----------
+const depuis7j = new Date(MAINTENANT - 7 * 86_400_000).toISOString().slice(0, 10);
+let prsMergees7j = [];
+const mergedRaw = await gh(["search", "prs", "--owner", OWNER, "--merged", "--limit", "100",
+  "--json", "repository,number,title,url", `merged:>=${depuis7j}`]);
+if (mergedRaw) {
+  prsMergees7j = JSON.parse(mergedRaw).map((p) => ({
+    repo: p.repository?.name, n: p.number, titre: p.title, url: p.url,
+  }));
+}
+let issuesClaudeFermees7j = [];
+const fermeesRaw = await gh(["search", "issues", "--owner", OWNER, "--label", "claude",
+  "--state", "closed", "--limit", "50",
+  "--json", "repository,number,title,labels,url", `closed:>=${depuis7j}`]);
+if (fermeesRaw) {
+  issuesClaudeFermees7j = JSON.parse(fermeesRaw).map((i) => ({
+    repo: i.repository?.name, n: i.number, titre: i.title, url: i.url,
+    modele: (i.labels ?? []).map((l) => l.name).find((n) => n.startsWith("claude:"))?.slice(7) ?? "sonnet",
+  }));
+}
+// Part méta : PRs mergées de la semaine sur l'outillage vs les projets.
+const META = new Set(["claude-ops", "fleet-kit", "fleetview"]);
+const pctMeta7j = prsMergees7j.length
+  ? Math.round((100 * prsMergees7j.filter((p) => META.has(p.repo)).length) / prsMergees7j.length)
+  : null;
 
 // ---------- 4. Healthchecks ----------
 let healthchecks = null;
@@ -109,12 +202,12 @@ try {
   const rep = await fetch("https://healthchecks.io/api/v3/checks/", { headers: { "X-Api-Key": cle } });
   if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
   const { checks } = await rep.json();
-  const harvest = checks.find((c) => (c.name || "").includes("harvest-hebdo"));
+  const harvest = checks.find((c) => (c.name || "").includes("harvest"));
   healthchecks = {
     problemes: checks
       .filter((c) => ["grace", "down"].includes(c.status))
       .map((c) => ({ nom: c.name, statut: c.status === "grace" ? "late" : c.status, dernier_ping: c.last_ping })),
-    harvest_hebdo: harvest ? (harvest.status === "grace" ? "late" : harvest.status) : "introuvable",
+    harvest: harvest ? (harvest.status === "grace" ? "late" : harvest.status) : "introuvable",
   };
 } catch (e) {
   erreurs.push(`healthchecks : ${e.message}`);
@@ -147,10 +240,14 @@ if (!process.env.BRIEF_CLOUD) try {
 // ---------- Sortie ----------
 process.stdout.write(JSON.stringify({
   généré_le: new Date().toISOString().slice(0, 16),
-  lundi: new Date().getDay() === 1,
   repos_actifs: actifs.length,
   repos,
   issues_claude: issuesClaude,
+  dispatch_en_rade: dispatchEnRade,
+  prs_mergees_7j: prsMergees7j,
+  issues_claude_fermees_7j: issuesClaudeFermees7j,
+  sessions_cloud_7j: sessionsCloud7j,
+  pct_meta_7j: pctMeta7j,
   healthchecks,
   usage_local: usageLocal,
   erreurs: erreurs.length ? erreurs : undefined,

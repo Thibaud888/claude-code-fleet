@@ -1,6 +1,7 @@
 // harvest-console.js — moisson incrémentale des sessions Cloud SANS session Claude (0 token).
 //
-// Aucun modèle dans la boucle : c'est TOI qui colles ce script dans la console du navigateur.
+// Remplace le pilotage « Claude in Chrome » de harvest-browser.md : mêmes endpoints, même
+// format de bundle, mais c'est TOI qui colles ce script — aucun modèle dans la boucle.
 //
 // Mode d'emploi (dimanche soir) :
 //   1. Ouvre https://claude.ai/code dans Chrome (connecté à ton compte).
@@ -11,10 +12,10 @@
 //      déplace-les dans harvest/archive/.
 //   4. Termine par : node harvest/split-harvest.mjs   (il pingue Healthchecks à la fin).
 //
-// Réglage : DEPUIS_JOURS = fenêtre incrémentale (8 = filet pour une moisson hebdo).
+// Réglage : DEPUIS_JOURS = fenêtre incrémentale (35 = filet pour une moisson mensuelle).
 // Si tu as sauté des semaines, augmente-le (ex. 30) avant de coller.
 (async () => {
-  const DEPUIS_JOURS = 8;
+  const DEPUIS_JOURS = 35;
   const TAILLE_MAX_PART = 35 * 1024 * 1024; // ~35 MB par fichier téléchargé
   const H = { "anthropic-version": "2023-06-01" };
   const dodo = (ms) => new Promise((r) => setTimeout(r, ms));

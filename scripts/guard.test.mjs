@@ -77,8 +77,32 @@ expect(
 );
 expect("push HEAD:main depuis un worktree du repo méta", false, "git push origin HEAD:main", wtMeta);
 
+// --- faux positif du 2026-07-17 : checkout -b en amont du push (HEAD lu avant exécution) ---
+// proj est remis sur main : c'est le cas réel (session sur le tronc, la commande crée sa
+// branche avant de pousser) — sans le correctif, HEAD (lu avant exécution) rend encore main.
+checkout(proj, "main");
+expect(
+  "checkout -b <branche> puis push nu de cette branche",
+  false,
+  "git checkout -b chore/x && git commit -q --allow-empty -m x && git push -u origin chore/x",
+  proj
+);
+expect(
+  "switch -c <branche> puis push nu de cette branche",
+  false,
+  "git switch -c chore/y && git push -u origin chore/y",
+  proj
+);
+checkout(proj, "feat/x");
+
 // --- non-régression ---
 expect("push d'une branche feature depuis un repo projet", false, "git push -u origin feat/x", proj);
+expect(
+  "checkout -b <branche> puis push explicite vers master (doit rester bloqué)",
+  true,
+  "git checkout -b chore/x && git push origin master",
+  proj
+);
 expect("secret (token GitHub) dans la commande", true, `git commit -m "${fakeToken}"`, proj);
 expect("commande sans git ni secret", false, "echo la main dans le sac", proj);
 

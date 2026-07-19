@@ -1,20 +1,31 @@
 ---
 name: dispatch
-description: Distribue les items de backlog de la flotte en issues GitHub labellisées `claude` (1 item = 1 issue = 1 session Actions = 1 PR), les ajoute au Project « Flotte », et suit l'avancement. Utiliser quand l'utilisateur dit « dispatch », « /dispatch », « distribue le backlog », « lance les chantiers », ou « dispatch status » / « où en sont les sessions ».
+description: Distribue les items de backlog de la flotte en issues GitHub labellisées `claude` (1 item = 1 issue = 1 session Actions = 1 PR) et suit l'avancement. Utiliser quand l'utilisateur dit « dispatch », « /dispatch », « distribue le backlog », « lance les chantiers », ou « dispatch status » / « où en sont les sessions ».
 ---
 
 # /dispatch [status | <repo> | « les N meilleurs »] — le backlog devient exécutable
 
 Convention : **1 item de backlog = 1 issue = 1 session Actions = 1 PR.**
 Registre : `claude-ops/fleet/fleet.json` (jamais de liste de repos en dur).
-Kanban : GitHub Project utilisateur **« Flotte »** (actuellement n° 1). Owner : `VOTRE-COMPTE`.
+Suivi visuel : **FleetView** (états, PRs, sessions) — pas de kanban GitHub Project à maintenir.
 Contrainte machine : scripts en **Node ou Python** (jamais PowerShell).
 
 ## Mode par défaut — dispatcher
 
 ### 1. Collecte (sans clones)
-- Lire `fleet/fleet.json`. Repos candidats : `statut == "actif"` **et** `kit_version != null`
-  (un repo non équipé n'a pas le workflow `claude.yml` — le signaler, proposer `/equiper`).
+- Lire `fleet/fleet.json`. Repos candidats : `statut == "actif"` **et** `dispatchable == true`
+  (= une issue labellisée `claude` y lance une session qui peut livrer sa PR).
+  Ne PAS filtrer sur `kit_version` : les repos méta (`claude-ops`, `fleet-kit`) dispatchent sans
+  porter la version du kit. Ne pas se fier au stub `claude.yml` seul non plus : sans le secret
+  `CLAUDE_CODE_OAUTH_TOKEN`, ou si Actions n'a pas le droit de créer des PR, la session brûle des
+  tokens pour rien (elle échoue, ou travaille sans pouvoir livrer).
+- Repo actif mais `dispatchable == false` → ne pas dispatcher ; dire ce que `dispatch_manque`
+  contient, et le geste correspondant. Les deux réglages GitHub sont **à la main de toi**
+  (le classifieur refuse que Claude pose un secret ou élève des privilèges) :
+  - `claude.yml` → `/equiper <repo>` (ou, repo méta, poser le seul stub) ;
+  - `CLAUDE_CODE_OAUTH_TOKEN` → `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo VOTRE-COMPTE/<repo>` ;
+  - `actions-peut-creer-des-PR` → `gh api -X PUT repos/VOTRE-COMPTE/<repo>/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true`.
+  Après coup : `node scripts/fleet.mjs` pour rafraîchir le registre.
 - Pour chaque candidat : `gh api repos/VOTRE-COMPTE/<repo>/contents/BACKLOG.md --jq .content | base64 -d`
   (404 = pas de backlog, ignorer). Items = lignes `- [ ]` (format kit : `titre — contexte/DoD`,
   marqueur de priorité optionnel en tête : `(P1|P2|P3)`).
@@ -34,14 +45,41 @@ queue, et deux branches parties du même main se marcheraient dessus). Les items
 d'un même repo restent pour le dispatch suivant — le dire dans la restitution.
 Repos différents = parallèle sans restriction.
 
-### 4. Tri par taille — issue API, ou interactif (cloud / local)
-Item **dispatchable en Actions** : périmètre clair, ≤ ~40 tours, DoD vérifiable par une commande.
+### 4. Gate de dispatchabilité — quatre questions AVANT chaque issue
+Un item portant le marqueur **« ⚠️ hors-Actions »** (posé par le cadrage du codex) est
+non dispatchable d'office : le proposer en local (`/backlog <repo> <n°>`) ou en session
+cloud interactive, sans re-dérouler le gate.
+Cadrer depuis le texte du backlog sans le confronter au réel produit des issues mortes-nées
+(vécu 3/5 le 2026-07-17). Item **dispatchable en Actions** = quatre oui :
+
+1. **Faisable avec l'allowlist ?** La session n'a QUE : `git`, `gh issue`, `gh pr`, `npm`,
+   `npx`, `node`, `python(3)`, `pip(3)`, `pytest`, Edit/Write/Read/Glob/Grep — donc **aucun
+   accès web** (scraping, sonde de source, API externe), pas de `gh workflow run` ni `gh run`
+   (impossible de lancer ou d'attendre un autre workflow), aucun aller-retour asynchrone.
+   Tout item de scraping est non dispatchable en l'état (vécu : av#16, sonde infaisable,
+   0,62 $ pour rien). Et : périmètre clair, ≤ ~40 tours.
+2. **L'état décrit est-il encore vrai ?** Vérifier au moment T, contre le repo réel (`gh api`,
+   quelques secondes) : le bug se reproduit, le fichier manque, les chiffres tiennent.
+   Un backlog n'est pas une source de vérité, c'est une liste d'intentions datées
+   (vécu : bac-maths#57, exercices livrés en mai, item jamais coché).
+3. **La DoD est-elle une commande qui échoue aujourd'hui ?** Nommer LA commande exacte qui
+   échoue maintenant et devra passer après. « verify passe » ne compte que si le verify teste
+   réellement la chose ; sinon la session peut croire avoir fini sur un vert qui ne prouve
+   rien (vécu : game-haiku#15, verify vert, 32 images mortes). Check inexistant → l'étape 1
+   de l'issue est de l'écrire et de le brancher dans le verify du repo.
+4. **L'item touche-t-il `.github/workflows/` ?** Le token de l'app GitHub des sessions Actions
+   n'a pas la permission `workflows` : une session dispatchée sur un item modifiant
+   `.github/workflows/` ne peut pas pousser sa branche, et le run sort **vert** malgré l'échec
+   (seul le commentaire d'issue le dit ; vécu fleet-kit#5 le 2026-07-17). Si oui → pas d'issue
+   `claude` : traitement local (`/backlog <repo> <n°>`) ou session cloud interactive (repli
+   « trop gros » ci-dessous).
+
 Item **trop gros** (refonte, conception, ambiguïté forte) : NE PAS créer d'issue — une session
-Actions plafonnée échouera sans PR (vécu : session tuée par `max_turns`). Deux replis, au choix de
+Actions plafonnée échouera sans PR (vécu : fleetview#38, `max_turns`). Deux replis, au choix de
 l'utilisateur : **local** → `/backlog <repo> <n°>` dans sa session courante ; **cloud
 interactif** → générer `chantiers/dispatch/<AAAA-MM-JJ>-<repo>-<slug>.md` (handoff autonome à
 coller dans une session claude.ai/code, format de `/handoff`) et le dire en restitution.
-Le budget API (5 €/mois) est réservé aux items courts.
+Les sessions Actions (plafonnées en tours) sont réservées aux items courts.
 
 ### 5. Création des issues
 Une par item retenu, via `gh issue create --repo VOTRE-COMPTE/<repo>` :
@@ -57,22 +95,15 @@ Une par item retenu, via `gh issue create --repo VOTRE-COMPTE/<repo>` :
   ## Étapes suggérées
   <3-6 puces, optionnel>
   ## Definition of done (vérifiable)
-  <commande(s) à lancer + résultat attendu ; « verify passe » si le repo en a un>
+  <LA commande qui échoue aujourd'hui et devra passer (gate n°3) + « verify passe »>
   ## En fin de PR
   Cocher cet item dans BACKLOG.md (même PR) + lien de la PR.
   ```
 
-### 6. Ajout au Project « Flotte »
-- Résoudre le Project par titre (`gh project list --owner VOTRE-COMPTE --format json` → « Flotte »),
-  ne pas supposer que le n° 1 est stable.
-- `gh project item-add <num> --owner VOTRE-COMPTE --url <issue-url>` puis passer le Status à
-  **« À faire »** : `gh project item-edit --id <item-id> --project-id <project-id>
-  --field-id <status-field-id> --single-select-option-id <id-À-faire>`
-  (IDs via `gh project field-list <num> --owner VOTRE-COMPTE --format json`).
-
-### 7. Restituer
-Table : repo · item · issue (lien) · modèle · Project. + les items en repli handoff Cloud,
-+ les items reportés (anti-collision), + les repos non équipés rencontrés.
+#### 6. Restituer
+Table : repo · item · issue (lien) · modèle. + les items en repli handoff Cloud,
++ les items reportés (anti-collision), + les repos actifs non dispatchables rencontrés.
+Le suivi visuel se fait dans **FleetView** (issues + PRs + runs, rien d'autre à alimenter).
 
 ## Mode `status` — pilotage
 
@@ -83,24 +114,24 @@ Table : repo · item · issue (lien) · modèle · Project. + les items en repli
      (`statusCheckRollup`).
    - **Run Actions** : `gh run list --repo <repo> --event issues --limit 5` — un run en cours =
      session active ; un run échoué sans PR = session plantée (donner le lien du run).
-3. **Réconcilier le Project** : run en cours → « En session » ; PR ouverte → « PR ouverte » ;
-   PR mergée/issue fermée → « Mergé » (item-edit comme ci-dessus). Le kanban reste honnête
-   sans drag-and-drop manuel.
-4. Rendre la table : repo · item · issue · PR · checks · état. **Signaler en priorité** : une PR
+3. Rendre la table : repo · item · issue · PR · checks · état. **Signaler en priorité** : une PR
    encore ouverte alors que ses checks sont verts depuis un moment (l'auto-merge a probablement
    échoué — permission, conflit, ou `allow auto-merge` non activé sur le repo), une PR ouverte
    avec checks rouges (attend une vraie relecture), une PR sur un repo en `.claude/no-auto-merge`
    (relecture voulue, normal qu'elle attende), et une issue sans PR ni run actif depuis > 1 h
-   (probable échec).
+   (probable échec). **Un run Actions vert ne prouve pas la livraison** (token sans permission
+   `workflows` notamment, cf. gate n°4) : vérifier les artefacts réels — PR ouverte/mergée et
+   branche poussée — pas la couleur du run.
 
 ## Garde-fous
 - Ne jamais dispatcher vers un repo dont `github.actor` ne serait pas VOTRE-COMPTE (non applicable
   en pratique : `gh` est authentifié VOTRE-COMPTE — c'est la garde du workflow côté fleet-kit).
 - Secrets : si `CLAUDE_CODE_OAUTH_TOKEN` manque sur un repo candidat (`gh secret list`),
   le signaler et proposer `/equiper` au lieu de créer une issue qui échouera.
-- Jamais plus de **5 issues** par dispatch (le budget API 5 €/mois reste le vrai goulot — les
-  PR se mergent seules dès que la CI est verte, cf. `fleet-kit` v1.1.0+, donc ce n'est plus la
-  relecture humaine qui limite). Rappeler le plafond si le mois semble chargé.
-- **1 commentaire = 1 lot** : si l'utilisateur veut renvoyer des retours sur une PR/issue,
-  lui rappeler de les grouper en UN seul commentaire `@claude` — chaque commentaire relance
-  une session Actions complète (recontextualisation payée à chaque réplique).
+- Plafond par défaut : **5 issues** par dispatch — pas une contrainte de budget (tout tourne
+  sur l'abonnement), mais la taille de lot que toi peut absorber en retours/PRs.
+  Ajustable s'il le demande explicitement.
+- **1 commentaire = 1 lot** — pour les **retours de relecture** sur une PR/issue : les grouper
+  en UN seul commentaire `@claude` (chaque commentaire relance une session Actions complète).
+  Ne s'applique PAS aux réponses aux questions posées par une session (1 réponse = 1 relance,
+  c'est le fonctionnement nominal).

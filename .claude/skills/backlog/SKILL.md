@@ -40,30 +40,36 @@ les clones locaux (partagés entre sessions, parfois en retard). Complément de 
 - **Anti-collision.** Avant tout traitement ou écriture : si une issue `claude` est ouverte sur
   le repo, le signaler (sa PR touchera aussi BACKLOG.md) et ne continuer qu'avec l'accord de
   l'utilisateur — bloquant en mode cloud (max 1 issue `claude` par repo).
-- **Marqueur de provenance.** Un `📱` en fin d'item = promu depuis le codex FleetView
-  (workflow `codex-cadrage.yml` de claude-ops) ; le conserver tel quel dans les réécritures.
+- **Marqueurs.** Un `📱` en fin d'item = promu depuis le codex FleetView (workflow
+  `codex-cadrage.yml` de claude-ops) ; « ⚠️ hors-Actions » = infaisable en session Actions
+  (accès web ou autre workflow requis) → jamais en mode cloud, traiter en local ou en session
+  cloud interactive. Conserver ces marqueurs tels quels dans les réécritures.
 
 ## Vue — `/backlog` et `/backlog <repo>`
 
-1. `git -C <clone claude-ops> pull` puis lire `fleet/fleet.json` ; repos `statut == "actif"`
-   (équipés ou non ; `kit_version == null` → badge « non équipé », pas dispatchable cloud).
-2. Par repo : `gh api repos/VOTRE-COMPTE/<repo>/contents/BACKLOG.md --jq .content` → décoder
-   base64 (Node/Python ou Git Bash — jamais PowerShell). 404 = pas de backlog.
-3. Parser les `- [ ]` : prio éventuelle `(P1|P2|P3)`, titre (avant le premier « — »),
-   détail (après). Les `- [x]` sont de l'historique : ignorés.
-4. Croiser avec `gh search issues --owner VOTRE-COMPTE --label claude --state open --json
-   repository,title,number` → badge « session en cours ».
-5. **Rendu widget** (défaut quand `mcp__visualize__show_widget` est disponible — app desktop) :
+1. `git -C <clone claude-ops> pull` (registre à jour), puis **un seul appel** :
+   `node <clone claude-ops>/scripts/backlog-collect.mjs [<repo>]` → JSON prêt pour le widget
+   `{repos:[{name,equipped,session,items:[{n,p,t,d}]}],empty:["repo (motif)"]}`.
+   Le script fait tout **sans charger l'historique en contexte** : repos `statut == "actif"` du
+   registre, fetch de chaque BACKLOG.md (raw via `gh api`), **filtrage des `- [x]` (historique
+   laissé dans le repo, jamais lu ici — ~70 % de tokens économisés vs l'ancien fetch entier)**,
+   parsing prio `(P1|P2|P3)` / titre (1er « — » ou « : » **hors parenthèses**) / détail, et
+   croisement des issues `claude` ouvertes → `session`. `n` = position parmi les `- [ ]`
+   (numérotation stable). `equipped == false` → badge « non équipé » (pas dispatchable cloud) ;
+   `empty` = repos sans item ouvert (motif « à jour » ou « pas de BACKLOG.md »).
+   Erreur/indispo du script → repli manuel : `gh api …/contents/BACKLOG.md` par repo, ne parser
+   que les `- [ ]` (jamais les `- [x]`).
+2. **Rendu widget** (défaut quand `mcp__visualize__show_widget` est disponible — app desktop) :
    appeler `mcp__visualize__read_me` (module `interactive`) puis `show_widget` avec le contenu
    de `widget-template.html` (même dossier que cette skill), en remplaçant la ligne
    `const DATA={repos:[],empty:[]};` par `const DATA=<JSON>;`. Schéma :
    `{repos:[{name,equipped,session,items:[{n,p,t,d}]}],empty:["repo (motif)"]}`
    (`p` = "P1"|"P2"|"P3"|null ; `t` = titre ; `d` = détail). **Ne pas réécrire le template** :
    le lire et injecter les données. Ses boutons renvoient les gestes via sendPrompt.
-6. **Repli markdown** (outil indisponible, ex. CLI) : un bloc par repo avec items —
+3. **Repli markdown** (outil indisponible, ex. CLI) : un bloc par repo avec items —
    `### <repo> · <badges>` puis table `n° | prio | titre` triée par priorité ; repos sans item
    regroupés sur une seule ligne en fin de vue.
-7. La prose (synthèse, signaux, rappel des gestes en une ligne) va dans la réponse,
+4. La prose (synthèse, signaux, rappel des gestes en une ligne) va dans la réponse,
    jamais dans le widget.
 
 ## `voir` — détail d'un item
@@ -101,7 +107,7 @@ branche + PR auto-merge. 409 → re-GET et rejouer.
 
 1. Relire le BACKLOG.md au moment T, afficher l'item retenu (cf. numérotation stable).
 2. Anti-collision (cf. règles transverses).
-3. Clone : `~/vos-repos/<repo>` ; absent → proposer `gh repo clone`.
+3. Clone : `~\Documents\vos-repos\<repo>` ; absent → proposer `gh repo clone`.
    Puis `git -C <clone> pull` ; **vérifier `branch --show-current` et `status` avant chaque
    commit** (clones partagés entre sessions).
 4. Chantier de flotte standard : lire `MAP.md` + `CLAUDE.md` du repo, branche `<type>/<slug>`
@@ -118,8 +124,8 @@ branche + PR auto-merge. 409 → re-GET et rejouer.
 4. Créer l'issue comme `/dispatch` §5 : titre = l'item ; labels `claude` (+ `claude:haiku` si
    mécanique) posés **à la création** ; corps = handoff autonome (Contexte / Objectif / Étapes
    suggérées / DoD vérifiable / « En fin de PR : cocher cet item dans BACKLOG.md »).
-5. Ajouter au Project « Flotte » (résolu par titre, statut « À faire ») comme `/dispatch` §6.
-6. Restituer : lien de l'issue + rappel « 1 commentaire = 1 lot ».
+5. Restituer : lien de l'issue + rappel « 1 commentaire = 1 lot » (pour les retours groupés ;
+   répondre à une question de la session reste le cas normal). Suivi : FleetView.
 
 ## Garde-fous
 
