@@ -15,6 +15,102 @@ le brief quotidien, la veille mensuelle et l'hygiène — aucune liste en dur ai
 node scripts/fleet.mjs
 ```
 
+## `kit-propager.mjs` — propager le kit vers la flotte
+
+Aligne les repos équipés sur la dernière version du kit, sans clone ni `/equiper` repo par repo.
+Ne propage **que ce que le kit possède et fait évoluer** : les skills de session
+(`templates/common/.claude/skills/`) et `.kit-version`. Ne touche jamais un skill maison, le
+CLAUDE.md, l'allowlist ni les workflows — ceux-là restent du ressort de `/equiper`, qui fusionne
+avec jugement.
+
+Pour chaque repo actif en retard au registre : 1 commit (API Git Data), 1 PR, puis **merge dès
+CI verte**. Ce n'est pas `--auto` : l'auto-merge natif de GitHub suppose `allow_auto_merge`
+activé sur le repo, ce qui n'est pas le défaut — le script attend donc les checks lui-même.
+CI rouge → PR laissée ouverte. Repo portant `.claude/no-auto-merge` → PR laissée pour relecture.
+**Idempotent** : un repo à jour est ignoré, sans diff ni PR.
+
+```bash
+node scripts/kit-propager.mjs --dry-run      # aperçu, n'écrit rien
+node scripts/kit-propager.mjs                # propage vers toute la flotte
+node scripts/kit-propager.mjs --repo <nom>   # un seul repo
+node scripts/kit-propager.mjs --no-merge     # PRs ouvertes, sans merge
+```
+
+> Le **déclenchement** est automatisé par `examples/workflows/kit-propagation.yml` (hebdo). Ce
+> workflow agit sur d'autres repos que le sien : le `github.token` d'un run ne voit que son
+> propre dépôt, il lui faut donc un PAT cross-repo (`FLEET_GH_TOKEN`) avec le droit de créer
+> des PR.
+
+## `brief-data.mjs` — toutes les données du brief en un appel
+
+Collecte l'état de la flotte (PRs ouvertes, workflows en échec, issues `claude`, Healthchecks)
+et la semaine écoulée (PRs mergées, sessions cloud, tokens locaux), et sort **un JSON compact** :
+la session de brief ne fait plus que rédiger, au lieu d'enchaîner ~30-45 appels `gh`.
+
+```bash
+node scripts/brief-data.mjs        # BRIEF_CLOUD=1 en Actions : saute le bloc ccusage local
+```
+
+### Suivi de dispatch — `dispatch_en_rade` (+ `brief-rade.mjs`)
+
+Le contrôle de sortie du workflow de dispatch ne juge que le run : **un run vert ne prouve pas
+que le travail a atterri**. Deux silences restaient donc sans témoin, et c'est ce que ce volet
+remonte :
+
+| `type` | Cas | Quoi faire |
+|---|---|---|
+| `issue` | issue `claude` ouverte > 1 h, aucune PR liée, aucune session en cours sur le repo | la session a échoué avant de pousser → relancer le dispatch |
+| `pr` | PR de session ouverte alors que rien ne la bloque (checks verts > 1 h ; repo sans CI > 12 h) | le travail est fait mais pas livré → il ne manque qu'un merge |
+
+Deux garde-fous contre le bruit : une session **en cours** (< 3 h) absout l'issue du repo, et une
+PR n'est « de session » que si sa branche est `claude/issue-<n>` ou qu'un bot l'a poussée — une
+branche `claude/…` poussée à la main est du travail local en cours, pas un dispatch en rade.
+La logique est isolée dans `brief-rade.mjs` pour être testable sans réseau :
+
+```bash
+node scripts/brief-rade.test.mjs   # 32 cas, dont la DoD et les non-régressions de bruit
+```
+
+### Canari de token — `token_claude` (+ `token-canari.mjs`)
+
+`fleet.mjs` vérifie que le secret `CLAUDE_CODE_OAUTH_TOKEN` **existe** — l'API ne livre que des
+noms de secrets, jamais leur valeur. Elle ne dit donc pas s'il **fonctionne**. Un token révoqué
+laisse le registre au vert pendant que chaque session échoue au premier tour, et ça reste
+invisible jusqu'au prochain dispatch.
+
+Le canari ne déclenche **rien** : il relit la durée de l'étape d'appel des runs **déjà passés**
+(pas de run témoin à payer — les crons d'une flotte équipée appellent Claude plusieurs fois par
+jour, ce qui suffit). Un rejet d'authentification revient en 1-2 s ; un appel réel prend des
+dizaines de secondes — d'où le seuil à 15 s. **La couleur du run ne suffit pas** : un échec peut
+venir d'ailleurs, et un rejet d'auth peut très bien sortir vert.
+
+Il s'arrête à la première **preuve** — un appel assez long pour que l'auth soit forcément passée ;
+plafond de 6 runs examinés, car beaucoup de runs `MAP` sont court-circuités par leur garde. Le
+verdict `suspect` ne tombe que si des appels courts **et** en échec s'accumulent sans aucune preuve.
+
+```bash
+node scripts/token-canari.test.mjs   # 17 cas, sur des durées d'étapes réellement observées
+```
+
+## `tokens-hebdo.mjs` — bilan tokens hebdomadaire
+
+Mesure deux mondes sur 7 jours glissants : le **local** (via `ccusage` : total par jour, par
+modèle, ratio de cache, top sessions) et le **cloud** (via `gh` : runs Claude/MAP/Self-heal par
+repo, avec l'effet des gardes et le compteur de relances par commentaire `@claude`).
+
+L'instantané part dans `rapport/tokens/data/<AAAA-SNN>.json`, **versionné** : c'est la mémoire
+longue du bilan, ce qui permet de comparer une semaine à l'autre. Comme la fenêtre mesurée est
+de 7 jours **glissants**, une exécution un autre jour produirait la même semaine ISO sur une
+fenêtre décalée — donc une archive fausse. D'où la garde :
+
+| Exécution | Écrit dans |
+|---|---|
+| dimanche (run nominal), ou `--force` | `<AAAA-SNN>.json` — l'archive versionnée |
+| tout autre jour | `<AAAA-SNN>.local.json` — fichier de travail, ignoré par git |
+
+Un test se lance donc sans précaution ; `--force` sert au rattrapage d'un dimanche manqué. Le
+JSON de sortie porte `archive.nominale` pour que la session de bilan sache ce qu'elle lit.
+
 ## Hooks du socle — branchés dans `~/.claude/settings.json`
 
 | Script | Hook | Rôle |
@@ -48,7 +144,10 @@ Nettoie les branches `claude/*` du compte **VOTRE-COMPTE** et signale ce qui tra
 - **Ne touche jamais** : une branche par défaut (tronc), ni la tête d'une **PR ouverte**.
 - **Signale sans toucher** : branches non mergées inactives > 30 j, PRs ouvertes inactives > 14 j,
   et la **dérive de kit de flotte** (`.kit-version` des repos vs `fleet-kit/VERSION`
-  → relancer `/equiper` sur les retardataires).
+  → relancer `/equiper` sur les retardataires). Les repos de type `meta` en sont exclus : ils
+  *portent* le kit sans l'installer, les lister en retard chaque semaine n'était que du bruit.
+- **Synchronise le socle** en fin de passe, via `socle-sync.mjs` (`~/.claude` → `socle-local/`) :
+  sans ce rendez-vous, la sauvegarde versionnée du socle dérive silencieusement.
 - **Sortie** : rapport markdown daté dans `rapport/hygiene/hygiene-AAAA-MM-JJ.md`.
 
 ### Usage
@@ -95,8 +194,13 @@ Unregister-ScheduledTask -TaskName "ClaudeOps-HygieneGitHub" -Confirm:$false   #
 
 | Script | Rôle | Prérequis |
 |---|---|---|
-| `brief-data.mjs` | collecte du brief quotidien en **1 appel** (PRs, échecs 24 h, issues `claude`, Healthchecks) | `gh` authentifié · `fleet/fleet.json` présent (généré par `fleet.mjs`) · clé API dans env `HEALTHCHECKS_API_KEY` ou fichier `~/.claude/healthchecks-api-key` · en local `npx ccusage` (réseau) pour le volet usage · `BRIEF_CLOUD=1` sur runner cloud (saute ce volet) |
+| `brief-data.mjs` | collecte du brief en **1 appel** (PRs, workflows en échec, issues `claude`, Healthchecks, dispatch en rade, canari de token) | `gh` authentifié · `fleet/fleet.json` présent (généré par `fleet.mjs`) · clé API dans env `HEALTHCHECKS_API_KEY` ou fichier `~/.claude/healthchecks-api-key` · en local `npx ccusage` (réseau) pour le volet usage · `BRIEF_CLOUD=1` sur runner cloud (saute ce volet) |
+| `brief-rade.mjs` · `token-canari.mjs` | volets de `brief-data.mjs`, isolés pour être testables sans réseau (`*.test.mjs`) | aucun — fonctions pures, on leur passe les données |
 | `tokens-hebdo.mjs` | bilan tokens hebdo (local ccusage + cloud Actions) | `npx ccusage` (réseau) · `gh` authentifié · `fleet/fleet.json` |
+| `kit-propager.mjs` | propage le kit vers les repos en retard (PR + merge) | `gh` authentifié avec le droit de créer des PR sur toute la flotte · `fleet/fleet.json` |
+| `backlog-collect.mjs` | agrège les `BACKLOG.md` de la flotte en un JSON (lu par `/backlog`) | `gh` authentifié · `fleet/fleet.json` |
+| `socle-sync.mjs` | recopie `~/.claude` → `socle-local/` pour que le socle versionné ne dérive pas | aucun — lit le socle local |
+| `meta-ratio.mjs` | part du **méta** dans l'activité de la flotte (lu par la revue mensuelle) | `gh` authentifié · `fleet/fleet.json` |
 | `ntfy.mjs` | notification téléphone (`node scripts/ntfy.mjs "titre" "corps"`) | topic dans env `NTFY_TOPIC` ou fichier `~/.claude/ntfy-topic` |
 | `statusline.mjs` | statusline Claude Code (% de contexte) | aucun — lit le JSON du harness sur stdin |
 | `gist-cleanup.mjs` | purge des gists de brief > 30 j | `gh` authentifié |

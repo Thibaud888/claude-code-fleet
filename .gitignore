@@ -8,3 +8,7 @@ harvest/repos/
 harvest/logs/
 token.txt
 hc-key.txt
+
+# Instantanes de travail de tokens-hebdo.mjs (execution hors dimanche) : la fenetre 7 j y est
+# decalee, seule l'archive <AAAA-SNN>.json du run du dimanche est versionnee.
+rapport/tokens/data/*.local.json

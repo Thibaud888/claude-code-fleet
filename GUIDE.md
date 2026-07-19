@@ -34,7 +34,7 @@ briefée, automatisée et surveillée ».
 9. [Le calendrier des automatisations](#9-le-calendrier-des-automatisations)
 10. [Les commandes maison (skills)](#10-les-commandes-maison-skills)
 11. [`harvest` : l'archive des sessions Cloud](#11-harvest--larchive-des-sessions-cloud)
-12. [Les 10 bonnes pratiques](#12-les-10-bonnes-pratiques)
+12. [Les bonnes pratiques — domicile unique](#12-les-bonnes-pratiques--domicile-unique)
 13. [Recettes pas à pas](#13-recettes-pas-à-pas)
 14. [Où retrouver quoi (carte des fichiers)](#14-où-retrouver-quoi-carte-des-fichiers)
 15. [Glossaire](#15-glossaire)
@@ -67,7 +67,6 @@ flowchart TB
         ISS["Issues label « claude »"]
         ACT["GitHub Actions<br/>= sessions Cloud"]
         PR["Pull Requests"]
-        PROJ["Project « Flotte » (kanban)"]
     end
 
     OBS["🔔 Observabilité<br/>ntfy (téléphone) · Healthchecks"]
@@ -79,7 +78,6 @@ flowchart TB
     KIT -.->|"équipe / met à niveau"| FLEET
     REG --> ISS
     ISS -->|labeled| ACT --> PR -->|"merge auto si CI verte"| FLEET
-    ISS --> PROJ
     ACT --> OBS
     OBS -->|📱| T
     PR -.->|"si .claude/no-auto-merge<br/>ou CI rouge"| T
@@ -165,6 +163,10 @@ diagnostic (le contexte retapé à chaque fois) disparaît.
 > ⚠️ `~/.claude` est **hors du dépôt** (spécifique à la machine). Le dossier
 > [`socle-local/`](socle-local/) en est une **copie versionnée** (filet de sécurité pour
 > restaurer sur une nouvelle machine). Claude lit `~/.claude`, **pas** `socle-local/`.
+>
+> Cette copie est **resynchronisée chaque semaine** par l'hygiène (`scripts/socle-sync.mjs`).
+> Ce n'est pas un luxe : tant que la synchro était manuelle, elle dérivait — filet de sécurité
+> périmé, donc pas de filet du tout.
 
 Le socle a quatre pièces :
 
@@ -198,7 +200,7 @@ sequenceDiagram
 
 > Pas de hook Stop/notif : l'app Claude Code notifie déjà nativement sur le téléphone en fin de
 > session locale (`agentPushNotifEnabled`). ntfy est réservé à ce qui n'a pas d'autre canal :
-> self-heal et le brief quotidien — voir §8.
+> le veilleur, le self-heal et le brief hebdo — voir §8.
 
 ---
 
@@ -209,7 +211,7 @@ La flotte, c'est l'ensemble de tes repos. Le **registre** (`fleet/fleet.json`, g
 en est la carte unique.
 
 - **Une seule source, jamais de liste en dur.** Le registre est lu par `/dispatch`, le brief
-  quotidien, la revue mensuelle et l'hygiène. Si tu as besoin de « la liste de mes repos »,
+  hebdo, la revue mensuelle, la propagation du kit et l'hygiène. Si tu as besoin de « la liste de mes repos »,
   c'est ici — nulle part ailleurs.
 - **Auto-découvert.** [`scripts/fleet.mjs`](scripts/fleet.mjs) interroge GitHub (`gh repo list`)
   et remplit pour chaque repo : visibilité, branche par défaut, `type`, `.kit-version`
@@ -287,7 +289,6 @@ flowchart TB
     D -->|"gros / conception /<br/>ambiguïté"| HO["Handoff Cloud<br/>chantiers/dispatch/*.md<br/>(à coller à la main)"]
     ISS -->|"événement labeled"| ACT["🤖 Session Cloud<br/>(GitHub Actions)"]
     ACT --> PR["Pull Request"]
-    ISS --> PROJ["Kanban « Flotte »<br/>À faire → En session → PR → Mergé"]
     PR --> CI{"CI verte ?<br/>+ pas de .claude/no-auto-merge"}
     CI -->|oui| MERGE["🔀 Merge auto (squash)"]
     CI -->|non| REV["👤 Relecture (checks rouges<br/>ou repo en relecture obligatoire)"]
@@ -301,21 +302,28 @@ flowchart TB
 3. **Anti-collision** : max 1 issue par repo à la fois (deux branches parties du même `main` se
    marcheraient dessus). Repos différents = parallèle sans limite.
 4. **Tri par taille** : petit → issue (session Actions) ; gros → handoff Cloud à coller.
-5. Crée l'issue avec le label `claude` (`claude:haiku` si mécanique) et l'ajoute au Project.
-6. Plafond : **5 issues max par dispatch** (le budget API 5 €/mois reste le vrai goulot).
+5. Crée l'issue avec le label `claude` (`claude:haiku` si mécanique) posé **dès la création**.
+6. Plafond : **5 issues max par dispatch**. Ce n'est pas une limite de coût — tout tourne sur
+   l'abonnement — mais une **taille de lot** : au-delà, les PRs et les allers-retours arrivent
+   plus vite qu'on ne les absorbe.
 
-**`/dispatch status`** — le tableau de bord : pour chaque issue ouverte, croise la PR liée
-(état, checks) et le run Actions, réconcilie le kanban, et **signale** les sessions probablement
-plantées (issue sans PR ni run actif depuis > 1 h).
+**`/dispatch status`** — le tableau de bord **côté session** : pour chaque issue ouverte, croise
+la PR liée (état, checks) et le run Actions, et **signale** les sessions probablement plantées
+(issue sans PR ni run actif depuis > 1 h).
 
 > 💡 Tu peux tout piloter **depuis le téléphone** : ouvrir/commenter une issue `claude` suffit à
 > lancer ou relancer une session Cloud.
 
 > 💰 **1 commentaire = 1 lot.** Chaque commentaire `@claude` relance une **session Actions
-> complète** (re-clone + relecture de tout le fil : la recontextualisation est payée à chaque
-> réplique). Groupe donc tous tes retours sur une PR/issue en **un seul commentaire** — la
-> session relit tout le fil de toute façon, un lot cohérent donne un meilleur résultat qu'une
-> rafale de petits commentaires, pour ~N fois moins de budget API.
+> complète** (re-clone + relecture de tout le fil : la recontextualisation est repayée à chaque
+> réplique). Groupe donc tes **retours de relecture** sur une PR/issue en **un seul
+> commentaire** — la session relit tout le fil de toute façon, et un lot cohérent donne un
+> meilleur résultat qu'une rafale de petits messages.
+>
+> ⚠️ **L'exception compte autant que la règle** : quand une session **pose une question**, lui
+> répondre est le cas **nominal** — une réponse = une relance, et c'est très bien ainsi. La
+> consigne de groupage vise les retours que tu inities, jamais le dialogue qu'une session
+> attend pour avancer. Se retenir de répondre, c'est laisser un chantier en rade pour rien.
 
 ---
 
@@ -339,15 +347,21 @@ flowchart TB
     CRON -->|"échec"| SH
     SH --> NT
     HC -->|"ping manquant (cron mort,<br/>machine éteinte, désactivé)"| NT
-    BRIEF["Brief quotidien 8h45"] -->|"seulement si 🔴/🟡"| NT
+    VEIL["Veilleur (toutes les 15 min)"] -->|"question de Claude,<br/>PR prête, échec"| NT
+    BRIEF["Brief hebdo, lundi 8h45"] -->|"seulement si 🔴/🟡"| NT
 ```
 
-1. **ntfy** — notifications sur le téléphone, réduites à l'essentiel (2026-07-11) : les sessions
-   locales notifient déjà nativement via l'app Claude Code, donc ntfy ne sert plus qu'à ce qui
-   n'a pas d'autre canal. Topic privé (`~/.claude/ntfy-topic` + secret `NTFY_TOPIC`). Émetteurs :
-   le self-heal (toujours, c'est une panne), le brief quotidien (seulement s'il y a du 🔴/🟡).
+1. **ntfy** — notifications sur le téléphone, réduites à l'essentiel : les sessions locales
+   notifient déjà nativement via l'app Claude Code, donc ntfy ne sert plus qu'à ce qui n'a pas
+   d'autre canal. Topic privé (`~/.claude/ntfy-topic` + secret `NTFY_TOPIC`). Trois émetteurs :
+   - le **veilleur** — le canal temps réel : un cron toutes les 15 min, qui tourne app fermée et
+     remonte ce qui attend une décision (une session qui pose une question, une PR prête à
+     merger, un échec). C'est lui qui rend le rendez-vous quotidien inutile ;
+   - le **self-heal** — toujours, c'est une panne ;
+   - le **brief hebdo** — le lundi matin, et seulement s'il reste du 🔴/🟡.
+
    ⚠️ **Sens unique** : écrire dans le topic ne déclenche rien. Pour donner un ordre depuis le
-   téléphone → **une issue GitHub `claude`**.
+   téléphone → **une issue GitHub `claude`** (ou un tableau de bord mobile qui en crée une).
 2. **Healthchecks.io** — le chien de garde. Chaque cron **pingue** son URL à chaque run ; si le
    ping n'arrive pas dans les temps (cron désactivé après 60 j, machine éteinte, retard…),
    Healthchecks alerte. Grâce : 6 h partout.
@@ -371,15 +385,19 @@ ne s'exécutent que quand ton app/ta machine est allumée).
 > (inertes, `examples/workflows/`), `hygiene.ps1` et les scripts de collecte. Les **tâches
 > planifiées locales de l'app** (`revue-mensuelle-flotte`, `bilan-tokens-hebdo`) ne sont pas
 > incluses — leurs prompts vivent dans l'app Claude Code ; seuls leurs scripts de collecte
-> (`tokens-hebdo.mjs`) sont là.
+> (`tokens-hebdo.mjs`) sont là. Le **veilleur** relève d'une app de pilotage séparée, hors
+> périmètre de cet extrait : sa ligne est gardée ci-dessous parce que le mécanisme se
+> reproduit avec un simple cron GitHub Actions + `ntfy.mjs`.
 
 | Automatisation | Quand | Où | Rôle |
 |---|---|---|---|
-| **Brief quotidien** (`brief-flotte-quotidien`) | ~8h45 (cron `45 6 * * *` UTC → dérive DST ±1 h) | **GitHub Actions** (Cloud, *always-on* : tourne même PC éteint) | État de la flotte (Haiku, CLI headless — l'action `claude-code-action` refuse les events `schedule`). 💰 Toute la collecte tient en **1 appel** (`scripts/brief-data.mjs` : PRs, échecs 24 h, issues claude, Healthchecks) — la session ne fait que rédiger. Suggestion du jour : le lundi seulement. A **remplacé** l'ancienne routine locale (`scheduled-tasks`) qui ne tournait que l'app ouverte ; en Cloud, l'usage `ccusage` (local) est omis. |
-| **Revue mensuelle** (`revue-mensuelle-flotte`) | 1er du mois | Tâche planifiée **locale de l'app** | Le système propose ses propres optimisations (lit l'archive locale + les bilans tokens du mois). |
-| **Bilan tokens hebdo** (`bilan-tokens-hebdo`) | lundi 9h | Tâche planifiée **locale de l'app** (Haiku) | Où sont passés les tokens (local ccusage + cloud Actions), effet des gardes, comparaison semaine précédente, 0-3 optimisations simples. 💰 Collecte en **1 appel** (`scripts/tokens-hebdo.mjs`). Rapport versionné : `rapport/tokens/AAAA-SNN.md`. |
-| **Hygiène GitHub** (`ClaudeOps-HygieneGitHub`) | lundi 9h | **Planificateur Windows** (PowerShell) | Supprime les branches `claude/*` mergées, signale PR/branches oubliées et la **dérive de kit**. Ping Healthchecks. En local (le Cloud n'a pas les droits de suppression). |
-| **Harvest hebdo** | dimanche soir | **Toi + snippet console** (0 token) | Archive incrémentale des sessions Cloud : coller `harvest/harvest-console.js` dans la console de claude.ai/code, déplacer les fichiers, `node harvest/split-harvest.mjs`. Plus de session Claude. Chien de garde Healthchecks `claude-ops/harvest-hebdo`. |
+| **Veilleur** | toutes les 15 min | **GitHub Actions** (gratuit sur un repo public) | Le canal d'alerte **temps réel**, app fermée : questions posées par une session, PRs prêtes à merger, échecs → ntfy. **0 token** (script Node pur, aucune session Claude). C'est lui qui a permis de dégrader le brief de quotidien à hebdomadaire. |
+| **Brief hebdo** (`brief-hebdo.yml`) | lundi ~8h45 (cron `45 6 * * 1` UTC → dérive DST ±1 h) | **GitHub Actions** (Cloud, *always-on* : tourne même PC éteint) | Le point hebdomadaire (Haiku, CLI headless — l'action `claude-code-action` refuse les events `schedule`) : ✅ traité cette semaine · 🔴🟡 ce qui reste · 💰 tokens & activité · une suggestion de dispatch. 💰 Toute la collecte tient en **1 appel** (`scripts/brief-data.mjs`) — la session ne fait que rédiger. Les alertes au fil de l'eau sont le métier du veilleur : un rendez-vous quotidien faisait doublon. |
+| **Propagation du kit** (`kit-propagation.yml`) | lundi ~8h15 | **GitHub Actions** | Les repos dont `.kit-version` est en retard reçoivent les fichiers **possédés par le kit** (skills de session + `.kit-version`) via `scripts/kit-propager.mjs` : PR mécanique, mergée dès CI verte, `.claude/no-auto-merge` respecté. **0 token** (pur script). Flotte à jour = no-op silencieux. |
+| **Revue mensuelle** (`revue-mensuelle-flotte`) | 1er du mois | Tâche planifiée **locale de l'app** | Le système propose ses propres optimisations (lit l'archive locale, les bilans tokens du mois et `scripts/meta-ratio.mjs` — la part du **méta** dans l'activité). **Jardine les consignes** : elle en retire ou fusionne au moins une à chaque passage. |
+| **Bilan tokens hebdo** (`bilan-tokens-hebdo`) | **dimanche 21h** | Tâche planifiée **locale de l'app** (Haiku) | Où sont passés les tokens (local ccusage + cloud Actions), effet des gardes, **coût 7 j par automatisme**, comparaison à la semaine précédente, 0-3 optimisations simples. 💰 Collecte en **1 appel** (`scripts/tokens-hebdo.mjs`). Rapport versionné `rapport/tokens/AAAA-SNN.md`, **lu par le brief du lundi matin** — il n'a donc pas de notification propre. Le dimanche n'est pas un détail : il doit tourner **avant** le brief, et c'est le seul jour où la fenêtre 7 j coïncide avec la semaine ISO archivée. |
+| **Hygiène GitHub** (`ClaudeOps-HygieneGitHub`) | lundi 9h | **Planificateur Windows** (PowerShell) | Supprime les branches `claude/*` mergées, signale PR/branches oubliées et la **dérive de kit**, puis **synchronise le socle** (`scripts/socle-sync.mjs` : `~/.claude` → `socle-local/`, sans quoi la sauvegarde dérive). Ping Healthchecks. En local (le Cloud n'a pas les droits de suppression). |
+| **Harvest mensuel** | autour du 1er du mois | **Toi + snippet console** (0 token) | Archive incrémentale des sessions Cloud : coller `harvest/harvest-console.js` dans la console de claude.ai/code, déplacer les fichiers, `node harvest/split-harvest.mjs`. Mensuel car sa **seule consommatrice** est la revue mensuelle. Non automatisable sans stocker les cookies claude.ai — une session de navigateur est requise. Chien de garde Healthchecks `claude-ops/harvest-mensuel`, grâce 72 h. |
 | **Crons repo** — chaque projet à cron (ex. un job de publication quotidien, une veille bi-hebdo, un digest hebdo) | selon repo | **GitHub Actions** | Le métier de chaque projet. Chacun sous chien de garde + self-heal. |
 
 > **Pourquoi PowerShell pour l'hygiène et Node pour le reste ?** Les scripts lancés **par
@@ -403,7 +421,7 @@ autres sont dans `fleet-kit` — d'où l'écart avec le compte du README.)
 | Skill | Quand l'invoquer | Produit |
 |---|---|---|
 | [`/backlog`](.claude/skills/backlog/SKILL.md) | « qu'est-ce qu'il reste à faire », `/backlog <repo> <n°> [cloud]` | vue agrégée des BACKLOG.md de la flotte ; traite un item **dans la session courante** (local) ou l'envoie en issue `claude` |
-| [`/dispatch`](.claude/skills/dispatch/SKILL.md) | « distribue le backlog », « où en sont les sessions » | issues `claude` + kanban, ou statut des sessions en cours |
+| [`/dispatch`](.claude/skills/dispatch/SKILL.md) | « distribue le backlog », « où en sont les sessions » | issues `claude` labellisées, ou statut des sessions en cours |
 | [`/bilan`](https://github.com/Thibaud888/fleet-kit/blob/main/templates/common/.claude/skills/bilan/SKILL.md) | « on s'arrête », « fais le point » | BACKLOG à jour + mémoire écrite + handoff éventuel + récap des PR |
 | [`/handoff`](https://github.com/Thibaud888/fleet-kit/blob/main/templates/common/.claude/skills/handoff/SKILL.md) | « prépare la reprise » | `chantiers/<slug>.md` + prompt autonome prêt à coller |
 | [`/reprends`](https://github.com/Thibaud888/fleet-kit/blob/main/templates/common/.claude/skills/reprends/SKILL.md) | « reprends », « tu t'es arrêté par manque de tokens » | reprend le travail interrompu (tokens/limite épuisés) là où il s'était arrêté |
@@ -411,7 +429,7 @@ autres sont dans `fleet-kit` — d'où l'écart avec le compte du README.)
 | [`/nouveau-projet`](skills/nouveau-projet/SKILL.md) | « démarre un projet » | repo + clone + kit complet + 1er commit |
 
 > **`/dispatch` ou `/backlog` ?** `/dispatch` = distribution **en lot** vers le cloud (tri par
-> taille, plafond 5, kanban). `/backlog` = **consultation** de toutes les tâches + geste
+> taille, anti-collision, plafond 5). `/backlog` = **consultation** de toutes les tâches + geste
 > **unitaire**, avec le choix local (session courante — pour l'ambigu ou le gros) ou cloud
 > (fire-and-forget). FleetView offre les mêmes gestes depuis le téléphone (⚡ issue, 🌩 session cloud).
 
@@ -423,9 +441,12 @@ Le Cloud est ton activité dominante, mais éphémère. `harvest` en garde une t
 
 - **Principe** : chaque PR créée en session Cloud contient une URL `claude.ai/code/session_<id>`
   → on peut **inventorier** puis **rapatrier** les transcripts.
-- **Rythme** : moisson hebdomadaire le dimanche soir — un **snippet collé dans la console du
-  navigateur** ([`harvest-console.js`](harvest/harvest-console.js), 0 token, aucun modèle dans
-  la boucle) ; procédure : [`harvest/README.md`](harvest/README.md).
+- **Rythme** : moisson **mensuelle**, autour du 1er du mois — un **snippet collé dans la console
+  du navigateur** ([`harvest-console.js`](harvest/harvest-console.js), 0 token, aucun modèle dans
+  la boucle) ; procédure : [`harvest/README.md`](harvest/README.md). Mensuel parce que sa
+  **seule consommatrice** est la revue mensuelle, qui suit juste après ; et manuel parce que
+  l'automatiser supposerait de stocker les cookies claude.ai — une session de navigateur
+  authentifiée est requise. Chien de garde : `claude-ops/harvest-mensuel`, grâce 72 h.
 - **Décision durable** : l'archive **reste locale** (`archive/` est gitignorée) — les
   transcripts peuvent contenir des secrets collés en session. C'est pour ça que la **revue
   mensuelle tourne en local** : elle peut la lire.
@@ -434,36 +455,42 @@ Le Cloud est ton activité dominante, mais éphémère. `harvest` en garde une t
 
 ---
 
-## 12. Les 10 bonnes pratiques
+## 12. Les bonnes pratiques — domicile unique
 
-Les règles qui font marcher le système. La plupart sont dans ton `CLAUDE.md` global — les voici
-réunies et expliquées.
+Ce guide **ne réénonce plus les règles**. Il dit où elles habitent.
 
-1. **MAP.md d'abord.** Si un repo a une `MAP.md`, la lire **avant** toute exploration ;
-   n'explorer que ce qu'elle ne couvre pas. (C'est le premier réflexe de gain de temps.)
-2. **Vérifie avant de conclure.** Aucune session ne rend la main sans avoir **vu tourner** son
-   `scripts/verify*` (ou build + tests). Le hook `check.mjs` t'y aide déjà en local.
-3. **Écris l'outil, pas l'output.** À la 3ᵉ récurrence d'une même tâche → un script réutilisable
-   dans `scripts/`, pas juste le résultat.
-4. **Branche + PR sur les repos projet.** Jamais de push direct sur `main` (un hook le bloque).
-   **Exceptions** : les repos méta `claude-ops` et `fleet-kit` (commit direct autorisé).
-4bis. **Les PR se mergent automatiquement dès que la CI est verte** (depuis le 2026-07-11, plus
-   d'attente de relecture par défaut). Exception par repo : un fichier `.claude/no-auto-merge`
-   dans le repo force la relecture humaine — posé au choix à la création (`/nouveau-projet`) ou
-   ajouté/retiré à la main à tout moment. Une CI rouge laisse aussi la PR ouverte, jamais mergée.
-5. **1 chantier = 1 session = 1 PR.** Le grain de base du dispatch. Un item de backlog trop gros
-   se découpe, ou part en handoff Cloud à coller à la main.
-6. **Une seule source pour la liste des repos** : `fleet/fleet.json`. Jamais de liste en dur
-   ailleurs. Rafraîchir avec `node scripts/fleet.mjs`.
-7. **Le Cloud ne lit pas `~/.claude`** → chaque repo doit être auto-suffisant (`CLAUDE.md` +
-   `MAP.md`), et toute issue de dispatch porte un handoff complet.
-8. **Scripts pour sessions : Node ou Python.** Jamais PowerShell (bloqué pour Claude ici).
-   PowerShell = tâches planifiées humaines uniquement.
-9. **Routage de modèles.** Mécanique (cartes, backlogs, briefs, moisson) → **Haiku** ; code
-   courant → **Sonnet** ; conception/architecture → **gros modèle** en session. Ça tient le
-   budget < 50 €/mois.
-10. **Clôture chaque session significative** par `/bilan` : BACKLOG à jour (statut + lien PR),
-    décisions durables en mémoire, handoff si un chantier reste ouvert.
+Elles étaient listées ici *et* dans le `CLAUDE.md` global *et* dans les `SKILL.md`. Trois copies
+d'une même consigne, c'est trois occasions de diverger — et c'est arrivé : la version lue par les
+sessions et celle lue par l'humain ont fini par se contredire. D'où la règle du **domicile
+unique** :
+
+| Type de règle | Domicile | Exemples |
+|---|---|---|
+| Transverse (vaut pour toute session) | le **`CLAUDE.md` global** | réflexes de session · git & merge · grain de travail · routage de modèles · contraintes de la machine · clôture |
+| D'exécution (propre à une commande) | le **`SKILL.md`** de cette commande | l'anti-collision de `/dispatch`, la numérotation stable de `/backlog`… |
+| Propre à un repo | le **`CLAUDE.md` du repo** | conventions, commandes de vérification |
+
+Ce guide, le README et les `MAP.md` **pointent** vers ces domiciles ; ils ne recopient pas.
+Modèle de socle à adapter : [`socle-local/CLAUDE.example.md`](socle-local/CLAUDE.example.md).
+
+### La règle des règles
+
+Toute nouvelle consigne doit **nommer le besoin qu'elle sert**, parmi six :
+
+1. simple à utiliser · 2. automatise sans moi · 3. me questionne quand il le faut vraiment ·
+4. vision globale des projets · 5. économe en tokens · 6. utilisable depuis le PC **et** le
+téléphone.
+
+Une consigne qui n'en sert aucun n'entre pas. Et la revue mensuelle **retire ou fusionne au
+moins une consigne** à chaque passage — sans ce jardinage, un socle ne fait que grossir, et un
+socle trop long n'est plus lu.
+
+> 🧭 Deux fossiles purgés par ce jardinage, pour l'exemple. « Tenir le budget sous 50 €/mois » :
+> les sessions tournent sur l'abonnement, ce n'est plus l'euro qui est rare mais la **limite
+> d'usage** — le routage de modèles sert toujours, mais pas pour la raison affichée. Et
+> « merger dès que la CI est verte » ne disait rien des repos **sans CI**, où « sans CI »
+> revenait à « à l'aveugle » : ces PR ne se mergent désormais que si leur corps porte une
+> section `## Vérification` (la commande lancée et son résultat).
 
 ---
 
@@ -500,9 +527,18 @@ un bug du repo, une PR de fix). Va voir l'issue `self-heal` : soit tu merges la 
 traites la cause externe signalée.
 
 ### 🔧 J'améliore un comportement sur toute la flotte
-Modifie le **`fleet-kit`** (workflow réutilisable ou template), publie une nouvelle `VERSION`,
-puis relance `/equiper` sur les repos en retard (l'hygiène hebdo signale déjà la **dérive de
-kit**). Une correction, toute la flotte à niveau.
+Modifie le **`fleet-kit`** (workflow réutilisable ou template) et publie une nouvelle `VERSION`.
+La suite est automatique, par deux chemins différents :
+
+- les **workflows** s'appliquent **instantanément** — les repos n'en hébergent qu'un stub qui
+  appelle le kit en `@main` ; il n'y a rien à propager ;
+- les **fichiers possédés par le kit** (skills de session, `.kit-version`) sont propagés le
+  lundi suivant par `kit-propagation.yml` — ou tout de suite avec
+  `node scripts/kit-propager.mjs`.
+
+`/equiper` ne sert plus qu'au **premier équipement** d'un repo et aux fusions qui demandent du
+jugement (CLAUDE.md, allowlist, stubs) : celles-là ne s'automatisent pas, elles écraseraient du
+travail local.
 
 ---
 
@@ -529,15 +565,20 @@ claude-ops/
 │   └── <chantier>.md         ← 1 fichier = 1 prompt de handoff autonome
 ├── scripts/
 │   ├── fleet.mjs             ← rafraîchit le registre (auto-découverte)
+│   ├── kit-propager.mjs      ← propage le kit vers les repos en retard (PR + merge)
+│   ├── brief-data.mjs        ← toute la collecte du brief en 1 appel
+│   ├── tokens-hebdo.mjs      ← collecte du bilan tokens (archive du dimanche)
+│   ├── socle-sync.mjs        ← ~/.claude → socle-local/ (appelé par l'hygiène)
+│   ├── meta-ratio.mjs        ← part du méta dans l'activité (revue mensuelle)
 │   ├── guard.mjs             ← hook : anti push-main + anti-secrets
 │   ├── check.mjs             ← hook : vérif post-édition
-│   └── hygiene.ps1           ← hygiène GitHub hebdo (lancée par Windows)
+│   └── hygiene.ps1           ← hygiène GitHub hebdo + synchro du socle (lancée par Windows)
 ├── .claude/skills/           ← /backlog /dispatch (versionnées → lues aussi en session Cloud)
 ├── skills/                   ← /equiper /nouveau-projet (outils locaux)
 │   └── <skill>/SKILL.md      ← (/bilan /handoff /reprends : désormais dans fleet-kit, posées par /equiper)
 ├── examples/workflows/       ← workflows d'exemple, livrés INERTES (brief, dispatch, codex — à activer)
 ├── harvest/                  ← moisson + archive des sessions Cloud
-│   ├── README.md             ← procédure de moisson hebdo
+│   ├── README.md             ← procédure de moisson mensuelle
 │   └── archive/              ← transcripts (gitignoré, local)
 └── socle-local/              ← copie versionnée de ~/.claude (filet de sécurité)
     ├── CLAUDE.md             ← brief global
@@ -573,7 +614,7 @@ ton `chantiers/BACKLOG.md` (quoi faire — propre à ton instance).
 | **Self-heal** | Auto-réparation : un cron qui échoue déclenche diagnostic + PR de fix. |
 | **Dérive de kit** | Écart entre la `.kit-version` d'un repo et la dernière version de `fleet-kit` ; signalée par l'hygiène. |
 | **Chantier** | Unité de travail : un item de backlog cadré pour tenir dans une session (souvent un fichier de handoff `chantiers/<slug>.md`). |
-| **Moisson** | Synonyme de harvest : l'archivage hebdomadaire des transcripts des sessions Cloud. |
+| **Moisson** | Synonyme de harvest : l'archivage mensuel des transcripts des sessions Cloud. |
 | **FleetView** | Tableau de bord mobile de la flotte (app séparée, non incluse dans cet extrait) : les gestes de `/backlog` et `/dispatch` depuis le téléphone. |
 | **Codex** | Boîte à idées : des issues « idée » sur le repo méta, cadrées automatiquement par `codex-cadrage.yml` puis promues au BACKLOG du bon repo. |
 | **Repo méta** | `claude-ops` et `fleet-kit` : l'outillage lui-même (commit direct sur `main` autorisé). |

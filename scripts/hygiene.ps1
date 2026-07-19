@@ -206,7 +206,9 @@ if (Test-Path $FleetPath) {
         $fleet = Get-Content $FleetPath -Raw | ConvertFrom-Json
         foreach ($f in $fleet.repos) {
             if ($f.statut -ne "actif") { continue }
-            if ($f.type -in @("contenu")) { continue }
+            # meta : les repos qui PORTENT le kit (claude-ops, fleet-kit) ne l installent pas
+            # eux-memes, deliberement — les lister en retard chaque semaine etait du bruit.
+            if ($f.type -in @("contenu", "meta")) { continue }
             if (-not $f.kit_version -or $f.kit_version -ne $kitCurrent) {
                 $installed = if ($f.kit_version) { $f.kit_version } else { "non installé" }
                 $drift += [pscustomobject]@{ Repo = $f.repo; Installed = $installed; Current = $kitCurrent }
@@ -332,6 +334,21 @@ else         { Write-Host ("Supprimées : {0} · " -f $deleted.Count) -NoNewline
 Write-Host ("échecs : {0} · branches périmées : {1} · PRs périmées : {2} · retards de kit : {3}" -f $failed.Count, $staleBr.Count, $stalePr.Count, $drift.Count)
 Write-Host ("Clones locaux : {0} synchronisés · {1} à surveiller · {2} ignorés · {3} échecs" -f $localSyncList.Count, $localFlagged.Count, $localSkipped.Count, $localFailed.Count)
 Write-Host ("Rapport : {0}" -f $ReportPath) -ForegroundColor Green
+
+# --- Synchronisation du socle (~/.claude -> socle-local/) : sans elle la sauvegarde derive ---
+# Fail-open : un echec ne bloque pas l hygiene. ErrorActionPreference passe temporairement a
+# Continue, car git push ecrit sur stderr — sous "Stop" cela suffit a faire planter le script.
+if (-not $DryRun) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $socleOut = & node (Join-Path $PSScriptRoot "socle-sync.mjs") 2>&1
+        foreach ($l in $socleOut) { Write-Host ("{0}" -f $l) }
+    } catch {
+        Write-Host ("socle-sync : echec — {0}" -f $_.Exception.Message)
+    }
+    $ErrorActionPreference = $prevEap
+}
 
 # --- Chien de garde Healthchecks : signale que l hygiene a bien tourne ---
 # En cas d echec du script avant cette ligne, l absence de ping declenchera l alerte (grace 6h).
