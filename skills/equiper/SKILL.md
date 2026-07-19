@@ -10,9 +10,9 @@ Kit : `VOTRE-COMPTE/fleet-kit` (public). Registre : `claude-ops/fleet/fleet.json
 Contrainte machine : scripts en **Node ou Python** (jamais PowerShell — bloqué pour les sessions).
 
 ## 0. Prérequis
-- Clone local de fleet-kit à jour : `git -C ~/vos-repos/fleet-kit pull`
+- Clone local de fleet-kit à jour : `git -C "~/vos-repos/fleet-kit" pull`
   (le cloner là s'il manque). Lire sa `VERSION` → `$KIT`.
-- Repo cible : clone local dans `~/vos-repos/<nom>` (sinon `gh repo clone` là-bas), à jour.
+- Repo cible : clone local dans `vos-repos/<nom>` (sinon `gh repo clone` là-bas), à jour.
 - Si `.kit-version` du repo == `$KIT` : dire « déjà à jour » et s'arrêter.
 
 ## 1. Déterminer le type
@@ -48,8 +48,8 @@ Copier depuis `fleet-kit/templates/common/` puis `templates/<type>/`, **sans éc
 
 ## 3. Labels + secrets + réglage Actions
 - **Réglage « Actions peut créer des PRs »** (sinon la session dispatch fait le travail mais
-  ne peut pas ouvrir la PR). Le classifieur **refuse que Claude le fasse** (élévation de
-  privilège) → donner la commande à l'utilisateur, qui la lance lui-même :
+  ne peut pas ouvrir la PR — constaté sur notes-bac #13). Le classifieur **refuse que Claude
+  le fasse** (élévation de privilège) → donner la commande à toi, qui la lance lui-même :
   `gh api -X PUT repos/VOTRE-COMPTE/<nom>/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true`
   Vérifier ensuite : `gh api repos/VOTRE-COMPTE/<nom>/actions/permissions/workflow`.
 - `gh label create claude --repo VOTRE-COMPTE/<nom> --color 7C3AED --force` ; idem `claude:haiku`

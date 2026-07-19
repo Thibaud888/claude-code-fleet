@@ -22,7 +22,7 @@ c'est la garantie que tout repo futur naît avec le kit, sans divergence.
 
 ## 2. Créer le repo + clone
 ```bash
-cd ~/vos-repos
+cd "~/vos-repos"
 gh repo create VOTRE-COMPTE/<nom> --private --clone      # ou --public
 cd <nom>
 ```

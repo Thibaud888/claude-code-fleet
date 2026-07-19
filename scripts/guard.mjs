@@ -10,9 +10,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, resolve } from "node:path";
 
-// ← Adapte à TES repos méta : les NOMS DE DOSSIER des clones autorisés à committer sur main.
-//   Si tu clones ce modèle sous un autre nom que claude-ops, ajoute ce nom ici.
-const META_REPOS = new Set(["claude-ops", "fleet-kit"]);
+const META_REPOS = new Set(["claude-ops", "fleet-kit", "claude-code-fleet"]);
 const SECRET_PATTERNS = [
   /sk-ant-[A-Za-z0-9_-]{20,}/, // clé API Anthropic
   /ghp_[A-Za-z0-9]{30,}/, // token GitHub classique
@@ -58,16 +56,27 @@ try {
   // --- 1. push direct sur main ---
   // Seule la portion qui suit chaque `git push` (jusqu'au séparateur suivant) est scannée :
   // le reste de la commande (--comment, -m…) peut contenir « main » en prose.
-  const pushTails = [...cmd.matchAll(/\bgit\b[^&;|\n]*?\bpush\b([^&;|\n]*)/g)].map((m) => m[1]);
-  if (pushTails.length) {
+  const pushMatches = [...cmd.matchAll(/\bgit\b[^&;|\n]*?\bpush\b([^&;|\n]*)/g)];
+  if (pushMatches.length) {
     // Nom du repo = dossier parent du git-dir commun (rattache un worktree à son repo principal).
     const commonDir = git("rev-parse --git-common-dir");
     const repo = commonDir ? basename(dirname(resolve(runCwd, commonDir))) : "";
     if (repo && !META_REPOS.has(repo)) {
-      const branch = git("rev-parse --abbrev-ref HEAD");
+      // Une commande composée peut créer sa branche avant de pousser
+      // (`git checkout -b <x> && … && git push`) : le hook s'exécute avant la commande, donc
+      // HEAD reflète encore l'ancienne branche. Si un `checkout -b`/`switch -c` précède
+      // textuellement le premier push, on prend cette branche comme branche effective ;
+      // sinon (pas de création de branche en amont) on retombe sur HEAD.
+      const firstPushIndex = pushMatches[0].index;
+      const branchCreates = [...cmd.matchAll(/\bgit\s+(?:checkout\s+-b|switch\s+-c)\s+(?:"([^"]+)"|'([^']+)'|(\S+))/g)]
+        .filter((m) => m.index < firstPushIndex);
+      const lastBranchCreate = branchCreates[branchCreates.length - 1];
+      const branch = lastBranchCreate
+        ? (lastBranchCreate[1] ?? lastBranchCreate[2] ?? lastBranchCreate[3])
+        : git("rev-parse --abbrev-ref HEAD");
       const pushesToTrunk =
         ["main", "master"].includes(branch) ||
-        pushTails.some((tail) => /(\s|:)(main|master)(\s|$)/.test(tail));
+        pushMatches.some((m) => /(\s|:)(main|master)(\s|$)/.test(m[1]));
       if (pushesToTrunk) {
         block(
           `push vers main/master interdit sur le repo projet « ${repo} » (règle : branche + PR). ` +

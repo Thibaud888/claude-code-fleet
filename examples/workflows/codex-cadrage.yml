@@ -1,14 +1,20 @@
 # Cadrage du codex — promeut les idées (issues `idée` de claude-ops) en items de backlog.
-# Principe : le codex = salle d'attente ; les BACKLOG.md
+# Pipeline décidé le 2026-07-14 (chantier G2) : le codex = salle d'attente ; les BACKLOG.md
 # racine (format kit) = l'unique stock de tâches. Ce workflow ne lance JAMAIS d'implémentation.
 #
-# Deux déclencheurs : cron quotidien (avant le brief de 6h45 UTC, qui lit les backlogs le lundi)
-# + workflow_dispatch unitaire (bouton « Cadrer » de FleetView, input `issue`).
+# Trois déclencheurs : cron quotidien (avant le brief de 6h45 UTC, qui lit les backlogs le lundi)
+# + workflow_dispatch unitaire (bouton « Cadrer » de FleetView, input `issue`)
+# + issue_comment (réponse de toi sur une issue `idée` en `à-préciser` → relance auto du
+#   cadrage). Garde-fou AU NIVEAU DU JOB pour issue_comment : issue ouverte, labels `idée` ET
+#   `à-préciser`, auteur VOTRE-COMPTE, commentaire ne commençant pas par 🪶 — sinon les commentaires
+#   du cadrage lui-même reboucleraient ; hors de ces cas, rien ne s'exécute au-delà du bootstrap.
 # Pattern : CLI Claude Code headless (comme brief-quotidien.yml) — l'action refuse `schedule`.
 #
-# Triage par idée : LIMPIDE → item `- [ ] (Px) titre — contexte/DoD 📱` ajouté au BACKLOG.md
-# du repo cible + issue fermée avec lien ; AMBIGUË → questions en commentaire (préfixe 🪶)
-# + label `à-préciser`, l'issue attend ta réponse (relue au run suivant).
+# Triage par idée : LIMPIDE (le défaut — tranche avec des hypothèses raisonnables, notées dans
+# l'item) → item `- [ ] (Px) titre — contexte/DoD 📱` ajouté au BACKLOG.md du repo cible + issue
+# fermée avec lien ; AMBIGUË (l'exception) → UNE question à options en commentaire (préfixe 🪶,
+# format parsé par FleetView en boutons) + label `à-préciser` ; la réponse de toi relance
+# le cadrage automatiquement.
 #
 # ⚠️ Écriture cross-repo : github.token ne voit que claude-ops → sans le secret FLEET_GH_TOKEN
 # (PAT fine-grained, contents RW sur les repos de la flotte), seules les idées « flotte »
@@ -24,6 +30,8 @@ on:
         description: "N° d'issue idée à cadrer seule (vide = toutes les idées en attente)"
         required: false
         type: string
+  issue_comment:
+    types: [created] # réponse sur une issue `idée`+`à-préciser` → relance (garde-fou sur le job)
 
 concurrency:
   group: codex-cadrage
@@ -31,6 +39,16 @@ concurrency:
 
 jobs:
   cadrage:
+    # issue_comment arrive pour TOUS les commentaires du repo : ne relancer le cadrage que si
+    # toi répond sur une issue idée en attente — jamais sur les commentaires 🪶 du cadrage
+    # lui-même (anti-boucle). schedule et workflow_dispatch passent sans condition.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      (github.event.issue.state == 'open' &&
+       contains(github.event.issue.labels.*.name, 'idée') &&
+       contains(github.event.issue.labels.*.name, 'à-préciser') &&
+       github.event.comment.user.login == 'VOTRE-COMPTE' &&
+       !startsWith(github.event.comment.body, '🪶'))
     runs-on: ubuntu-latest
     permissions:
       contents: write # BACKLOG.md de claude-ops (idées « flotte »)
@@ -42,7 +60,8 @@ jobs:
         id: inv
         env:
           GH_TOKEN: ${{ github.token }}
-          ISSUE: ${{ inputs.issue }}
+          # issue_comment → l'issue commentée ; dispatch → l'input `issue` ; schedule → vide (toutes)
+          ISSUE: ${{ github.event_name == 'issue_comment' && github.event.issue.number || inputs.issue }}
         run: |
           if [ -n "$ISSUE" ]; then
             gh api "repos/${{ github.repository }}/issues/$ISSUE" \
@@ -74,17 +93,19 @@ jobs:
           GH_TOKEN: ${{ secrets.FLEET_GH_TOKEN || github.token }}
         run: |
           cat > /tmp/prompt-cadrage.md << 'FIN_PROMPT'
-          Tu es le greffier du codex de la flotte de toi (compte GitHub VOTRE-COMPTE). Les idées en attente sont des issues `idée` du repo claude-ops, listées dans /tmp/idees.json (number, title, labels). Ta mission : les CADRER — promouvoir les limpides en items de backlog, poser des questions sur les ambiguës. Tu ne lances JAMAIS d'implémentation, tu n'écris JAMAIS de code. En français, au tutoiement. Session courte et économe : aucune exploration, uniquement les commandes décrites ici.
+          Tu es le greffier du codex de la flotte de toi (compte GitHub VOTRE-COMPTE). Les idées en attente sont des issues `idée` du repo claude-ops, listées dans /tmp/idees.json (number, title, labels). Ta mission : les CADRER — promouvoir les limpides en items de backlog (le cas normal), poser UNE question à options sur les rares ambiguës. Tu ne lances JAMAIS d'implémentation, tu n'écris JAMAIS de code. En français, au tutoiement. Session courte et économe : aucune exploration, uniquement les commandes décrites ici.
 
           Traite les issues de /tmp/idees.json UNE PAR UNE :
 
           1. Lis l'issue : `gh api repos/VOTRE-COMPTE/claude-ops/issues/<n>` (corps = `**Projet** : <repo>` puis description libre, souvent dictée au micro — reformule proprement sans inventer) et son dernier commentaire : `gh api repos/VOTRE-COMPTE/claude-ops/issues/<n>/comments --jq 'last(.[]) | {user: .user.login, body: .body}'`.
-          2. Si le label `à-préciser` est présent ET que le dernier commentaire commence par « 🪶 » : l'auteur n'a pas encore répondu → passe à l'issue suivante sans rien faire. S'il a répondu (dernier commentaire sans « 🪶 »), relis tout le fil (`--jq '[.[] | {user: .user.login, body: .body}]'`) et refais le triage en intégrant ses réponses.
-          3. Triage. LIMPIDE = tu peux écrire un item actionnable sans inventer d'intention : quoi faire, où, et une definition of done vérifiable. AMBIGUË = plusieurs lectures possibles, périmètre flou, ou projet cible incohérent avec la demande. Au moindre doute réel → AMBIGUË. Une idée mal orthographiée ou dictée n'est PAS ambiguë si l'intention est claire.
+          2. Si le label `à-préciser` est présent ET que le dernier commentaire commence par « 🪶 » : toi n'a pas encore répondu → passe à l'issue suivante sans rien faire. S'il a répondu (dernier commentaire sans « 🪶 »), relis tout le fil (`--jq '[.[] | {user: .user.login, body: .body}]'`) et refais le triage en intégrant ses réponses. Sa réponse peut être un simple numéro (« 2 » = option 2 de ta dernière question), « option 2 », ou du texte libre ; « fais au mieux » ou « tranche toi-même » = applique ta recommandation et promeus sans re-questionner.
+          3. Triage — tranche par défaut, la question est l'exception. LIMPIDE = tu peux écrire un item actionnable sans trahir l'intention : quoi faire, où, et une definition of done vérifiable. Un détail d'implémentation manquant ne rend PAS une idée ambiguë : tranche avec des hypothèses raisonnables et note-les dans l'item promu (suffixe « — hypothèses : … » juste avant le 📱). AMBIGUË = seulement si un choix change radicalement le résultat (repo cible incohérent ou absent du registre, deux lectures OPPOSÉES de l'objectif) ET qu'aucune hypothèse par défaut n'est défendable. Cible : la grande majorité des idées promues du premier coup. Une idée mal orthographiée ou dictée n'est PAS ambiguë si l'intention est claire.
+
+          3bis. Gate de réalité — AVANT de promouvoir une idée limpide, confronte-la au réel (1 à 3 appels `gh api` max par idée, pas plus) : (a) **l'état décrit est-il encore vrai ?** Si l'idée affirme quelque chose de vérifiable en une commande (un fichier manque, un bug, un chiffre), vérifie via `gh api` sur le repo cible ; si c'est déjà résolu, commente `🪶 Déjà en place : <preuve>` et ferme l'issue SANS promouvoir. (b) **DoD = vérifiable** : termine le contexte de l'item par la commande ou le constat précis qui doit passer (pas un vague « ça marche »). (c) **Faisabilité en session Actions** : une session Actions n'a AUCUN accès web (scraping, API externe, sonde de site) et ne peut ni lancer ni attendre un autre workflow ; si l'idée l'exige, promeus quand même l'item mais ajoute le marqueur « ⚠️ hors-Actions » juste avant le 📱 (il devra être traité en session locale ou cloud interactive, jamais en issue directe).
 
           Si LIMPIDE → promotion :
           a. Repo cible = la valeur `**Projet**` du corps (`flotte` → claude-ops). Vérifie qu'il est au registre : fichier local `fleet/fleet.json`. Absent du registre → traite comme AMBIGUË (demande le bon projet).
-          b. Compose l'item en UNE ligne, format kit : `- [ ] (P1|P2|P3) <titre court> — <contexte + definition of done> 📱` (priorité = label P1/P2/P3 de l'issue, P3 si absent ; le 📱 final marque la provenance codex — garde-le).
+          b. Compose l'item en UNE ligne, format kit : `- [ ] (P1|P2|P3) <titre court> — <contexte + definition of done> 📱` (priorité = label P1/P2/P3 de l'issue, P3 si absent ; si tu as tranché des hypothèses, ajoute « — hypothèses : … » juste avant le 📱 ; le 📱 final marque la provenance codex — garde-le).
           c. Ajoute la ligne à la FIN du fichier `BACKLOG.md` à la RACINE du repo cible, via l'API contents : GET `repos/VOTRE-COMPTE/<repo>/contents/BACKLOG.md` (contenu base64 + sha) → ajouter la ligne → PUT avec le sha, message `backlog : idée promue depuis le codex (claude-ops#<n>)`. Encode/décode le base64 avec `base64` ou `node -e`. Si le fichier n'existe pas (404), crée-le (PUT sans sha) avec exactement cet en-tête, puis l'item :
 
              # Backlog
@@ -96,9 +117,22 @@ jobs:
           d. Commente puis ferme l'issue : commentaire `🪶 Promue au backlog de <repo> — <html_url du commit>`, puis `gh api -X PATCH repos/VOTRE-COMPTE/claude-ops/issues/<n> -f state=closed`.
           e. Si le PUT échoue en 403/404 (pas de droits d'écriture sur ce repo : secret FLEET_GH_TOKEN absent) : ne ferme PAS l'issue ; pose le label `à-préciser` et commente `🪶 Promotion impossible : le token du workflow n'a pas accès en écriture à <repo>. Pose le secret FLEET_GH_TOKEN (PAT fine-grained, contents RW sur la flotte) sur claude-ops, puis réponds ici pour relancer.` — sauf si le dernier commentaire dit déjà exactement ça (ne te répète pas).
 
-          Si AMBIGUË → questions :
-          a. Commente l'issue — le commentaire COMMENCE par `🪶 **Cadrage — questions**`, puis 1 à 3 questions numérotées, ciblées, auxquelles on peut répondre en une ligne chacune. Termine par : « Réponds ici — je repasse chaque matin (ou bouton 🪶 Cadrer de FleetView pour tout de suite). »
-          b. Pose le label `à-préciser` sur l'issue (crée-le au besoin : `gh api repos/VOTRE-COMPTE/claude-ops/labels -f name=à-préciser -f color=D08770 -f description="Cadrage en attente de précisions"` — ignore l'erreur s'il existe déjà). Ne ferme PAS l'issue.
+          Si AMBIGUË → question unique :
+          a. Commente l'issue avec UNE seule question — la plus bloquante — au format EXACT suivant (FleetView le parse pour afficher les options en boutons ; 2 à 4 options max, une ligne chacune, moins de 140 caractères par option) :
+
+             🪶 **Cadrage — question**
+             <UNE seule question, la plus bloquante, en une ligne>
+
+             **Options :**
+             1. <option courte et concrète>
+             2. <option courte et concrète>
+             3. <option courte>
+
+             **Recommandation :** option N — <pourquoi en quelques mots>
+
+             Réponds ici — un numéro suffit.
+
+          b. Pose le label `à-préciser` sur l'issue (crée-le au besoin : `gh api repos/VOTRE-COMPTE/claude-ops/labels -f name=à-préciser -f color=D08770 -f description="Cadrage en attente de précisions"` — ignore l'erreur s'il existe déjà). Ne ferme PAS l'issue — la réponse de toi relancera le cadrage automatiquement.
 
           Contraintes :
           - Écritures autorisées : les BACKLOG.md des repos cibles, et commentaires/labels/état des issues `idée` de claude-ops. RIEN d'autre.

@@ -1,0 +1,40 @@
+# Propagation automatique du kit de flotte — 0 token (pur script Node, aucune session Claude).
+# Décidé le 2026-07-19 (audit des consignes, besoin « automatise sans moi ») : l'hygiène
+# signalait la dérive de kit mais la propagation restait un geste manuel. Désormais :
+# chaque lundi tôt (avant l'hygiène locale de 9h et le brief de 8h45), les repos dont le
+# `.kit-version` est en retard reçoivent les fichiers POSSÉDÉS par le kit (skills de session
+# + .kit-version) via `scripts/kit-propager.mjs` — PR mécanique, mergée dès CI verte,
+# `.claude/no-auto-merge` respecté. Idempotent : flotte à jour = aucun diff, aucun bruit.
+#
+# Ce qui reste du ressort de /equiper (jugement, jamais propagé ici) : premier équipement,
+# fusion de CLAUDE.md, allowlist, stubs de workflows.
+#
+# Prérequis : secret FLEET_GH_TOKEN avec Contents ET Pull requests en écriture sur la flotte —
+# sans PR write, les PRs s'ouvrent mais ne se mergent pas (visible au bilan du run).
+name: Propagation du kit
+
+on:
+  schedule:
+    - cron: "15 6 * * 1" # UTC — lundi 8h15 CEST / 7h15 CET ; dérive DST ±1 h assumée
+  workflow_dispatch: {}
+
+concurrency:
+  group: kit-propagation
+  cancel-in-progress: false
+
+jobs:
+  propager:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # fleet.json lu depuis le checkout ; les écritures passent par FLEET_GH_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Propager le kit aux repos en retard
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_GH_TOKEN }}
+        run: node scripts/kit-propager.mjs
