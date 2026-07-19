@@ -139,7 +139,11 @@ jobs:
           - Plus de 15 idées dans le lot → traite les 15 premières et signale le reste dans ta sortie de session.
           - Une étape échoue → continue avec les autres issues et signale l'échec dans ta sortie de session.
           FIN_PROMPT
+          # --output-format json : la sortie finale porte `total_cost_usd`, que tokens-hebdo.mjs
+          # relit dans le log du run (fin des forfaits estimés pour cet automatisme). La session
+          # travaille exactement pareil — seule la forme de sa sortie stdout change.
           claude -p "$(cat /tmp/prompt-cadrage.md)" \
             --model claude-haiku-4-5-20251001 \
             --max-turns 40 \
+            --output-format json \
             --allowedTools "Bash(gh:*),Bash(node:*),Bash(base64:*),Bash(jq:*),Read,Write,Glob,Grep"

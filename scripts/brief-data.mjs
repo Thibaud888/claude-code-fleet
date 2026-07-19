@@ -11,6 +11,8 @@
 //   - issues `claude` ouvertes (avec âge et présence d'une PR liée) ;
 //   - dispatchs EN RADE (dispatch_en_rade) : issue `claude` > 1 h sans PR ni session en cours,
 //     et PR de session (`claude/*`) ouverte que rien ne bloque — cf. scripts/brief-rade.mjs ;
+//   - token_claude : le CLAUDE_CODE_OAUTH_TOKEN sert-il encore ? (canari sans effet de bord,
+//     lecture de la durée d'appel des runs passés — cf. scripts/token-canari.mjs) ;
 //   - chiens de garde Healthchecks en late/down + état du check harvest (moisson mensuelle).
 // SEMAINE écoulée (le « traité » + l'activité) :
 //   - PRs mergées 7 j (toutes, avec repo) et issues `claude` fermées 7 j (avec modèle) ;
@@ -28,6 +30,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { detecteRade, estPrDeSession, issueDeLaBranche, synthetiseChecks } from "./brief-rade.mjs";
+import { etapeClaude, verdictToken, WORKFLOWS_CLAUDE } from "./token-canari.mjs";
 
 const pExecFile = promisify(execFile);
 const pExec = promisify(exec);
@@ -72,7 +75,7 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
     gh(["pr", "list", "--repo", `${OWNER}/${r.repo}`,
       "--json", "number,title,isDraft,createdAt,url,headRefName,author,statusCheckRollup"]),
     gh(["run", "list", "--repo", `${OWNER}/${r.repo}`, "--limit", "40",
-      "--json", "workflowName,status,conclusion,createdAt,updatedAt,url"]),
+      "--json", "workflowName,status,conclusion,createdAt,updatedAt,url,databaseId"]),
   ]);
   const runsList = runsRaw ? JSON.parse(runsRaw) : [];
   const prs = (prsRaw ? JSON.parse(prsRaw) : []).map((p) => ({
@@ -91,6 +94,7 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
   // semaine très chargée peut être sous-comptée — proxy, pas une compta exacte).
   const sessions7j = {};
   const runsActifs = [];
+  const runsClaude = []; // candidats pour le canari de token (cf. token-canari.mjs)
   let minutes7j = 0;
   for (const run of runsList) {
     if (run.status !== "completed") {
@@ -105,6 +109,10 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
     if (ageJours(run.createdAt) < 7) {
       sessions7j[run.workflowName] = (sessions7j[run.workflowName] ?? 0) + 1;
       if (run.updatedAt) minutes7j += Math.max(0, (Date.parse(run.updatedAt) - Date.parse(run.createdAt)) / 60_000);
+      if (WORKFLOWS_CLAUDE.includes(run.workflowName)) {
+        runsClaude.push({ repo: r.repo, wf: run.workflowName, id: run.databaseId,
+          url: run.url, cree: run.createdAt });
+      }
     }
   }
   const enEchec = [];
@@ -131,14 +139,35 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
     }
   }
   return { repo: r.repo, prs, en_echec: enEchec, repares_24h: repares24h,
-    runs_actifs: runsActifs, sessions_7j: sessions7j, minutes_7j: Math.round(minutes7j) };
+    runs_actifs: runsActifs, runs_claude: runsClaude,
+    sessions_7j: sessions7j, minutes_7j: Math.round(minutes7j) };
 });
 const repos = parRepo
   .filter((r) => r.prs.length || r.en_echec.length || r.repares_24h.length)
-  .map(({ sessions_7j, minutes_7j, runs_actifs, ...etat }) => etat);
+  .map(({ sessions_7j, minutes_7j, runs_actifs, runs_claude, ...etat }) => etat);
 const sessionsCloud7j = parRepo
   .filter((r) => Object.keys(r.sessions_7j).length)
   .map((r) => ({ repo: r.repo, minutes: r.minutes_7j, par_workflow: r.sessions_7j }));
+
+// ---------- 2bis. Canari : le token d'abonnement sert-il encore ? ----------
+// On ne déclenche aucun workflow : on relit la durée de l'étape d'appel des runs déjà passés
+// (cf. token-canari.mjs). Du plus récent au plus ancien, on s'arrête à la première PREUVE —
+// en flotte saine c'est le 1er appel, et le plafond borne le coût quand ça va mal.
+// 6 : sur une flotte de 16 repos, beaucoup de runs `MAP` récents sont sautés par leur garde
+// (aucune étape exploitable). Mesuré ici : il en a fallu 4 pour tomber sur un vrai appel.
+// On garde l'ordre par récence — un token révoqué hier ne se voit que sur les runs d'hier.
+const PLAFOND_CANARI = 6;
+const candidats = parRepo.flatMap((r) => r.runs_claude ?? [])
+  .sort((a, b) => Date.parse(b.cree) - Date.parse(a.cree));
+const observations = [];
+for (const c of candidats.slice(0, PLAFOND_CANARI)) {
+  const jobsRaw = await gh(["api", `repos/${OWNER}/${c.repo}/actions/runs/${c.id}/jobs`], { ok404: true });
+  if (!jobsRaw) continue;
+  const steps = (JSON.parse(jobsRaw).jobs ?? []).flatMap((j) => j.steps ?? []);
+  observations.push({ repo: c.repo, wf: c.wf, url: c.url, etape: etapeClaude(steps) });
+  if (observations.at(-1).etape?.duree_s >= 15) break; // preuve trouvée, inutile d'aller plus loin
+}
+const tokenClaude = { ...verdictToken(observations), runs_examines: observations.length };
 
 // ---------- 3. Issues `claude` ouvertes ----------
 let issuesClaude = [];
@@ -244,6 +273,7 @@ process.stdout.write(JSON.stringify({
   repos,
   issues_claude: issuesClaude,
   dispatch_en_rade: dispatchEnRade,
+  token_claude: tokenClaude,
   prs_mergees_7j: prsMergees7j,
   issues_claude_fermees_7j: issuesClaudeFermees7j,
   sessions_cloud_7j: sessionsCloud7j,

@@ -4,7 +4,7 @@
 //
 // Deux mondes mesurés sur 7 jours glissants :
 //   LOCAL (quota Pro)  — via ccusage : total/jour, par modèle, ratio cache, top sessions.
-//   CLOUD (API 5 €/m)  — via gh : runs Claude/MAP/Self-heal par repo actif, avec l'effet
+//   CLOUD (abonnement)  — via gh : runs Claude/MAP/Self-heal par repo actif, avec l'effet
 //                        des gardes (MAP régénérée vs court-circuitée, self-heal lancé vs
 //                        évité — estimé par la durée du run) et le compteur de relances
 //                        par commentaire @claude (règle « 1 commentaire = 1 lot »).
@@ -12,7 +12,8 @@
 // Archive son propre instantané dans rapport/tokens/data/<AAAA-SNN>.json et joint celui de
 // la semaine précédente pour la comparaison. Sortie : JSON compact sur stdout.
 //
-// Usage : node scripts/tokens-hebdo.mjs   (prérequis : gh CLI authentifié)
+// Usage : node scripts/tokens-hebdo.mjs [--force]   (prérequis : gh CLI authentifié)
+//   --force : écrire l'archive versionnée même hors dimanche (rattrapage d'un run manqué).
 import { exec, execFile } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -62,6 +63,15 @@ const semaineISO = (t) => {
   return `${jeudi.getUTCFullYear()}-S${String(num).padStart(2, "0")}`;
 };
 const semaine = semaineISO(MAINTENANT - 86_400_000); // dimanche → semaine écoulée
+
+// Garde d'archive. `rapport/tokens/data/<AAAA-SNN>.json` est VERSIONNÉ (mémoire longue du
+// bilan) alors que la fenêtre mesurée est de 7 jours GLISSANTS : relancer le script un autre
+// jour réécrit l'archive de la semaine avec une fenêtre décalée — donc fausse. Le run nominal
+// est celui du dimanche soir ; toute autre exécution écrit dans un fichier de travail que le
+// .gitignore écarte.
+const FORCE = process.argv.includes("--force");
+const ARCHIVE_NOMINALE = new Date(MAINTENANT).getDay() === 0 || FORCE;
+const FICHIER_SEMAINE = `${semaine}${ARCHIVE_NOMINALE ? "" : ".local"}.json`;
 
 // ---------- 1. LOCAL : ccusage ----------
 let local = null;
@@ -147,7 +157,7 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
 });
 
 const cloud = {
-  note: `sessions Claude dans Actions (budget API 5 €/mois) ; lancé/évité estimé par la durée du run (seuils ${SEUIL_MAP_S}s/${SEUIL_HEAL_S}s)`,
+  note: `sessions Claude dans Actions (coût = équivalent API) ; lancé/évité estimé par la durée du run (seuils ${SEUIL_MAP_S}s/${SEUIL_HEAL_S}s)`,
   dispatch_sessions: 0,
   relances_commentaire: 0, // @claude — la règle « 1 commentaire = 1 lot » veut ce compteur bas
   map: { regenerees: 0, court_circuitees: 0 },
@@ -183,7 +193,11 @@ const instantane = {
   periode: { du: new Date(DEBUT).toISOString().slice(0, 10), au: new Date(MAINTENANT).toISOString().slice(0, 10) },
   local, cloud,
 };
-writeFileSync(join(DATA_DIR, `${semaine}.json`), JSON.stringify(instantane, null, 1) + "\n", "utf8");
+writeFileSync(join(DATA_DIR, FICHIER_SEMAINE), JSON.stringify(instantane, null, 1) + "\n", "utf8");
+if (!ARCHIVE_NOMINALE) {
+  console.error(`ℹ️  Hors dimanche : archive versionnée ${semaine}.json laissée intacte, ` +
+    `instantané écrit dans ${FICHIER_SEMAINE} (ignoré par git). Rattrapage : --force.`);
+}
 
 let precedente = null;
 const semPrec = semaineISO(MAINTENANT - 8 * 86_400_000);
@@ -194,6 +208,8 @@ if (semPrec !== semaine && existsSync(fichierPrec)) {
 
 process.stdout.write(JSON.stringify({
   ...instantane,
+  archive: { fichier: FICHIER_SEMAINE, nominale: ARCHIVE_NOMINALE,
+    note: ARCHIVE_NOMINALE ? undefined : "exécution hors dimanche : fenêtre 7 j décalée, archive versionnée non touchée" },
   semaine_precedente: precedente
     ? { semaine: precedente.semaine, local_cout_usd: precedente.local?.cout_usd_7j ?? null,
         local_par_modele: precedente.local?.par_modele ?? null, cloud: precedente.cloud ?? null }

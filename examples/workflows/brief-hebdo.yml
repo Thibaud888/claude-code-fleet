@@ -50,10 +50,10 @@ jobs:
           Tu es le chief of staff de la flotte de repos de toi (compte GitHub VOTRE-COMPTE). Produis le BRIEF HEBDO du lundi matin, lisible en 60 secondes, en français et au tutoiement. LECTURE SEULE : aucun commit, aucune écriture dans les repos. Session courte et économe en tokens : uniquement les commandes listées ci-dessous, aucune exploration.
 
           Étapes :
-          1. Lance `node scripts/brief-data.mjs` — il collecte TOUT en un appel (état courant : PRs ouvertes, workflows en échec, issues `claude`, dispatchs en rade, chiens de garde Healthchecks ; et semaine écoulée : PRs mergées, issues `claude` fermées avec labels, sessions cloud par repo/workflow, part méta) et sort un JSON compact. Ne lance AUCUNE commande de collecte supplémentaire hors de celles listées plus bas : si le script échoue, signale-le dans le brief et rédige avec ce que tu as.
+          1. Lance `node scripts/brief-data.mjs` — il collecte TOUT en un appel (état courant : PRs ouvertes, workflows en échec, issues `claude`, dispatchs en rade, validité du token d'abonnement, chiens de garde Healthchecks ; et semaine écoulée : PRs mergées, issues `claude` fermées avec labels, sessions cloud par repo/workflow, part méta) et sort un JSON compact. Ne lance AUCUNE commande de collecte supplémentaire hors de celles listées plus bas : si le script échoue, signale-le dans le brief et rédige avec ce que tu as.
           2. Rédige le brief à partir du JSON, dans cet ordre :
              - **✅ Traité cette semaine** : PRs mergées (`prs_mergees_7j`, groupées par repo), issues claude fermées, échecs réparés (`repares_24h`). Bref et factuel — c'est la preuve que la machine avance.
-             - **🔴 Reste à traiter** : crons en échec (`en_echec` avec cron=true), checks Healthchecks late/down, puis **dispatchs en rade** (`dispatch_en_rade`) — le suivi du lot dispatché : une ligne par entrée avec son `motif`, son âge et le lien. `type: "issue"` = la session n'a rien produit, relancer le dispatch ; `type: "pr"` = le travail est fait mais pas livré, il ne manque qu'un merge. C'est du travail perdu tant que personne ne regarde : ne jamais omettre cette liste si elle est non vide.
+             - **🔴 Reste à traiter** : si `token_claude.statut` vaut `suspect`, c'est LE point du brief et il passe avant tout le reste (reprends son `message` et les runs de `suspects` : sans token valide, toute la flotte est à l'arrêt sans le savoir) ; `ok` ou `inconnu` ne se mentionnent pas. Puis crons en échec (`en_echec` avec cron=true), checks Healthchecks late/down, puis **dispatchs en rade** (`dispatch_en_rade`) — le suivi du lot dispatché : une ligne par entrée avec son `motif`, son âge et le lien. `type: "issue"` = la session n'a rien produit, relancer le dispatch ; `type: "pr"` = le travail est fait mais pas livré, il ne manque qu'un merge. C'est du travail perdu tant que personne ne regarde : ne jamais omettre cette liste si elle est non vide.
              - **🟡 À surveiller** : PRs qui vieillissent (age_j élevé) et échecs non-crons (surtout echecs_consecutifs > 1) — sans répéter ce qui est déjà en 🔴.
              - **💰 Tokens & activité** (section importante, ne jamais l'omettre) :
                * Local : lis le rapport le plus récent de `rapport/tokens/` (checkout du repo, fichier `AAAA-SNN.md` le plus récent — écrit dimanche soir par la tâche locale). Reprends-en le total 7 j, la répartition par modèle, le ratio cache et le fait marquant. S'il date de plus de 8 jours, dis-le (« PC éteint dimanche ? ») et reprends quand même le dernier connu.
@@ -69,7 +69,12 @@ jobs:
 
           Contraintes : uniquement les commandes ci-dessus ; si une étape échoue, continue avec le reste et signale-le.
           FIN_PROMPT
+          # --output-format json : la sortie finale porte `total_cost_usd`, que tokens-hebdo.mjs
+          # relit dans le log du run (fin des forfaits estimés pour cet automatisme). La session
+          # travaille exactement pareil — seule la forme de sa sortie stdout change, et le brief
+          # lui-même part par gh/ntfy, pas par stdout.
           claude -p "$(cat /tmp/prompt-brief.md)" \
             --model claude-haiku-4-5-20251001 \
             --max-turns 40 \
+            --output-format json \
             --allowedTools "Bash(node:*),Bash(gh:*),Bash(base64:*),Read,Glob,Grep"
