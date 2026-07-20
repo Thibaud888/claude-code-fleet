@@ -98,6 +98,36 @@ Mesure deux mondes sur 7 jours glissants : le **local** (via `ccusage` : total p
 modèle, ratio de cache, top sessions) et le **cloud** (via `gh` : runs Claude/MAP/Self-heal par
 repo, avec l'effet des gardes et le compteur de relances par commentaire `@claude`).
 
+### Coût par automatisme
+
+Le bloc `cloud.automatismes` répond à « **qu'est-ce qui coûte, chez moi ?** » — dispatch,
+relances, MAP, self-heal, brief, cadrage, propagation. C'est la base d'arbitrage quand il faut
+décider quoi couper, ou s'il vaut le coup de changer de forfait.
+
+Deux sources, dans cet ordre :
+
+1. **Le coût réel, lu dans le log du run.** `claude-code-action` écrit le JSON de résultat de la
+   session dans le log : on y relit `total_cost_usd`. Même chose pour un workflow headless qui
+   lance son `claude -p` en **`--output-format json`** — c'est la seule raison d'utiliser ce
+   format, et ça vaut la peine de le faire partout.
+2. **Un forfait calibré, en repli run par run.** Pour les runs qui ne loguent pas leur coût
+   (workflow pas encore passé en JSON, log tronqué). Les valeurs de `FORFAITS_USD` sont
+   calibrées sur une flotte réelle : **réadapte-les à la tienne**.
+
+Chaque poste expose `chiffrees` / `au_forfait` : on voit donc en un coup d'œil quelle part du
+chiffre est mesurée et quelle part est estimée. Un poste à `au_forfait` élevé est une invitation
+à passer le workflow correspondant en `--output-format json`.
+
+> ⚠️ **La couleur du run ne suffit pas, ici non plus.** Un run `skipped` (garde du stub :
+> commentaire sans `@claude`, auteur non autorisé) n'est ni une session ni un échec : il est
+> sorti du comptage, sans quoi les gardes gonflaient les chiffres. Et une session `failure`
+> **sans coût logué** a planté *avant* la session (setup, auth) — comptée en échec, pas en
+> session : un vrai run de session logue son coût même quand il échoue.
+
+Les sessions cloud **web** (claude.ai/code) ne sont pas mesurées ici. Leur coût réel est dans
+l'archive `harvest` (`result.total_cost_usd` par tour) — donc estimable, mais à la revue
+mensuelle, au rythme de cette archive.
+
 L'instantané part dans `rapport/tokens/data/<AAAA-SNN>.json`, **versionné** : c'est la mémoire
 longue du bilan, ce qui permet de comparer une semaine à l'autre. Comme la fenêtre mesurée est
 de 7 jours **glissants**, une exécution un autre jour produirait la même semaine ISO sur une
