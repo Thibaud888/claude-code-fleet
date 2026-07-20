@@ -31,23 +31,18 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { detecteRade, estPrDeSession, issueDeLaBranche, synthetiseChecks } from "./brief-rade.mjs";
 import { etapeClaude, verdictToken, WORKFLOWS_CLAUDE } from "./token-canari.mjs";
+import { creerCollecteur } from "./collecte.mjs";
 
 const pExecFile = promisify(execFile);
 const pExec = promisify(exec);
 const OWNER = process.env.FLEET_OWNER ?? "VOTRE-COMPTE";
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url))); // .../claude-ops
-const erreurs = [];
-
-const gh = async (args, { ok404 = false } = {}) => {
-  try {
-    const { stdout } = await pExecFile("gh", args, { encoding: "utf8", timeout: 60_000 });
-    return stdout;
-  } catch (e) {
-    if (ok404) return null;
-    erreurs.push(`gh ${args.slice(0, 3).join(" ")}… : ${(e.stderr || e.message || "").trim().slice(0, 150)}`);
-    return null;
-  }
-};
+// Helper partagé avec tokens-hebdo.mjs : réessaie ce qui est transitoire (503, rate limit…)
+// et tient le compte de ce qui a échoué, pour que la sortie puisse DIRE qu'elle est trouée.
+const { gh, erreurs, bilan: bilanCollecte } = creerCollecteur({
+  lancer: async (args) =>
+    (await pExecFile("gh", args, { encoding: "utf8", timeout: 60_000 })).stdout,
+});
 
 // Exécution parallèle avec plafond (éviter le rate-limit gh)
 const enParallele = async (items, limite, fn) => {
@@ -77,6 +72,7 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
     gh(["run", "list", "--repo", `${OWNER}/${r.repo}`, "--limit", "40",
       "--json", "workflowName,status,conclusion,createdAt,updatedAt,url,databaseId"]),
   ]);
+  const obtenu = prsRaw !== null && runsRaw !== null;
   const runsList = runsRaw ? JSON.parse(runsRaw) : [];
   const prs = (prsRaw ? JSON.parse(prsRaw) : []).map((p) => ({
     n: p.number, titre: p.title, age_j: ageJours(p.createdAt), age_h: ageHeures(p.createdAt),
@@ -138,13 +134,13 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
       repares24h.push({ wf, cron, repare_il_y_a_h: ageHeures(dernier.createdAt) });
     }
   }
-  return { repo: r.repo, prs, en_echec: enEchec, repares_24h: repares24h,
+  return { repo: r.repo, obtenu, prs, en_echec: enEchec, repares_24h: repares24h,
     runs_actifs: runsActifs, runs_claude: runsClaude,
     sessions_7j: sessions7j, minutes_7j: Math.round(minutes7j) };
 });
 const repos = parRepo
   .filter((r) => r.prs.length || r.en_echec.length || r.repares_24h.length)
-  .map(({ sessions_7j, minutes_7j, runs_actifs, runs_claude, ...etat }) => etat);
+  .map(({ sessions_7j, minutes_7j, runs_actifs, runs_claude, obtenu, ...etat }) => etat);
 const sessionsCloud7j = parRepo
   .filter((r) => Object.keys(r.sessions_7j).length)
   .map((r) => ({ repo: r.repo, minutes: r.minutes_7j, par_workflow: r.sessions_7j }));
@@ -267,7 +263,16 @@ if (!process.env.BRIEF_CLOUD) try {
 }
 
 // ---------- Sortie ----------
+// `collecte` EN TÊTE, à dessein : si elle est trouée, il faut le savoir AVANT de lire un
+// chiffre. Reléguée en queue (l'ancien tableau `erreurs`), l'information ne servait à personne.
+const collecte = bilanCollecte({
+  attendus: actifs.length,
+  obtenus: parRepo.filter((r) => r.obtenu).length,
+});
+if (!collecte.complete) console.error(`⚠️  ${collecte.avertissement}`);
+
 process.stdout.write(JSON.stringify({
+  collecte,
   généré_le: new Date().toISOString().slice(0, 16),
   repos_actifs: actifs.length,
   repos,
@@ -280,5 +285,4 @@ process.stdout.write(JSON.stringify({
   pct_meta_7j: pctMeta7j,
   healthchecks,
   usage_local: usageLocal,
-  erreurs: erreurs.length ? erreurs : undefined,
 }, null, 1) + "\n");

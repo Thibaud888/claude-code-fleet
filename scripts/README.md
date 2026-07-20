@@ -41,6 +41,28 @@ node scripts/kit-propager.mjs --no-merge     # PRs ouvertes, sans merge
 > propre dépôt, il lui faut donc un PAT cross-repo (`FLEET_GH_TOKEN`) avec le droit de créer
 > des PR.
 
+## `collecte.mjs` — le helper `gh()` partagé, et la complétude
+
+Utilisé par `brief-data.mjs` **et** `tokens-hebdo.mjs`. Deux rôles :
+
+- **réessayer ce qui est transitoire** (HTTP 429/500/502/503/504, rate limit, coupure réseau) —
+  3 tentatives, backoff 800 ms puis 1,6 s. Ce qui est définitif (404, droits manquants) n'est
+  jamais rejoué : ça ne ferait que tripler l'attente avant le même échec ;
+- **dire que la collecte est trouée**, via un bloc `collecte` placé **en tête** du JSON :
+  `complete`, `repos_attendus`/`repos_obtenus`, `appels_gh`/`echecs_gh`/`reessais`, `erreurs`,
+  et un `avertissement` en clair.
+
+> ⚠️ **Le piège que ça corrige, et qui vaut pour n'importe quel collecteur.** Un helper qui
+> attrape l'erreur, la range dans un tableau en **fin** de sortie et continue avec un résultat
+> vide produit un rapport **parfaitement bien formé mais faux** — indiscernable d'un rapport
+> complet. Constaté : 13 repos sur 16 en HTTP 503, coût cloud annoncé ~4× trop bas. Une session
+> qui rédige n'a aucune raison d'aller lire une queue de fichier. L'information doit être en
+> tête, et le prompt doit la lire avant tout chiffre.
+
+```bash
+node scripts/collecte.test.mjs   # 27 cas, sans réseau (lancer/dormir injectés)
+```
+
 ## `brief-data.mjs` — toutes les données du brief en un appel
 
 Collecte l'état de la flotte (PRs ouvertes, workflows en échec, issues `claude`, Healthchecks)
@@ -135,8 +157,13 @@ fenêtre décalée — donc une archive fausse. D'où la garde :
 
 | Exécution | Écrit dans |
 |---|---|
-| dimanche (run nominal), ou `--force` | `<AAAA-SNN>.json` — l'archive versionnée |
-| tout autre jour | `<AAAA-SNN>.local.json` — fichier de travail, ignoré par git |
+| dimanche (run nominal), ou `--force` — **et collecte complète** | `<AAAA-SNN>.json` — l'archive versionnée |
+| tout autre jour, **ou collecte incomplète** | `<AAAA-SNN>.local.json` — fichier de travail, ignoré par git |
+
+Deux gardes jumelles : le mauvais **jour** et la mauvaise **complétude** dégradent l'une comme
+l'autre vers le fichier de travail. Un repo muet ne rend pas un chiffre approximatif, il rend un
+chiffre faux — et une archive fausse contamine ensuite toutes les comparaisons de semaine à
+semaine (cf. `collecte.mjs` ci-dessus).
 
 Un test se lance donc sans précaution ; `--force` sert au rattrapage d'un dimanche manqué. Le
 JSON de sortie porte `archive.nominale` pour que la session de bilan sache ce qu'elle lit.
