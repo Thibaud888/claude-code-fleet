@@ -24,6 +24,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { creerCollecteur } from "./collecte.mjs";
 
 const pExecFile = promisify(execFile);
 const pExec = promisify(exec);
@@ -44,17 +45,12 @@ const SEUIL_HEADLESS_S = 90; // brief/cadrage : garde 0 token (rien à traiter�
 // leur place. `session_claude` sert de repli pour un run dispatch/relance au log illisible
 // (points réels observés : 0,62 $ pour une session avortée, 2,16 $ pour une grosse session).
 const FORFAITS_USD = { map_regen: 0.08, heal_lance: 0.15, brief: 0.12, cadrage: 0.1, session_claude: 1.2 };
-const erreurs = [];
-
-const gh = async (args) => {
-  try {
-    const { stdout } = await pExecFile("gh", args, { encoding: "utf8", timeout: 60_000 });
-    return stdout;
-  } catch (e) {
-    erreurs.push(`gh ${args.slice(0, 3).join(" ")}… : ${(e.stderr || e.message || "").trim().slice(0, 120)}`);
-    return null;
-  }
-};
+// Helper partagé avec brief-data.mjs : réessaie ce qui est transitoire (503, rate limit…) et
+// tient le compte de ce qui a échoué — ici c'est vital, l'archive est VERSIONNÉE.
+const { gh, erreurs, bilan: bilanCollecte } = creerCollecteur({
+  lancer: async (args) =>
+    (await pExecFile("gh", args, { encoding: "utf8", timeout: 60_000 })).stdout,
+});
 const enParallele = async (items, limite, fn) => {
   const out = [];
   let i = 0;
@@ -164,11 +160,11 @@ const WORKFLOWS_SUIVIS = ["Claude", "MAP", "Self-heal",
 const parRepo = await enParallele(actifs, 6, async (r) => {
   const raw = await gh(["run", "list", "--repo", `${OWNER}/${r.repo}`, "--limit", "80",
     "--json", "databaseId,workflowName,event,conclusion,createdAt,startedAt,updatedAt"]);
-  if (!raw) return { repo: r.repo, runs: [] };
+  if (!raw) return { repo: r.repo, runs: [], obtenu: false };
   const runs = JSON.parse(raw).filter((run) =>
     Date.parse(run.createdAt) > DEBUT &&
     WORKFLOWS_SUIVIS.includes(run.workflowName));
-  return { repo: r.repo, runs };
+  return { repo: r.repo, runs, obtenu: true };
 });
 
 const cloud = {
@@ -298,16 +294,31 @@ cloud.automatismes = automatismes;
 cloud.sessions_web = { note: "non mesurées ici ; coût réel présent dans l'archive harvest (result.total_cost_usd) → revue mensuelle" };
 
 // ---------- 3. Instantané + comparaison avec la semaine précédente ----------
+const collecte = bilanCollecte({
+  attendus: actifs.length,
+  obtenus: parRepo.filter((r) => r.obtenu).length,
+});
+
+// Seconde garde d'archive, jumelle de celle du dimanche : une collecte TROUÉE ne doit pas
+// devenir la mémoire longue du bilan. Un repo muet (503, rate limit) ne rend pas un chiffre
+// approximatif — il rend un chiffre FAUX, et une archive fausse contamine ensuite toutes les
+// comparaisons de semaine à semaine. On dégrade donc en fichier de travail, comme hors dimanche.
+const ARCHIVE_ECRITE = ARCHIVE_NOMINALE && collecte.complete;
+const FICHIER_ECRIT = ARCHIVE_ECRITE ? `${semaine}.json` : `${semaine}.local.json`;
+
 mkdirSync(DATA_DIR, { recursive: true });
 const instantane = {
   semaine,
   periode: { du: new Date(DEBUT).toISOString().slice(0, 10), au: new Date(MAINTENANT).toISOString().slice(0, 10) },
-  local, cloud,
+  collecte, local, cloud,
 };
-writeFileSync(join(DATA_DIR, FICHIER_SEMAINE), JSON.stringify(instantane, null, 1) + "\n", "utf8");
-if (!ARCHIVE_NOMINALE) {
+writeFileSync(join(DATA_DIR, FICHIER_ECRIT), JSON.stringify(instantane, null, 1) + "\n", "utf8");
+if (!collecte.complete) {
+  console.error(`⚠️  ${collecte.avertissement}`);
+  console.error(`   → archive versionnée ${semaine}.json NON écrite : instantané dégradé dans ${FICHIER_ECRIT}.`);
+} else if (!ARCHIVE_NOMINALE) {
   console.error(`ℹ️  Hors dimanche : archive versionnée ${semaine}.json laissée intacte, ` +
-    `instantané écrit dans ${FICHIER_SEMAINE} (ignoré par git). Rattrapage : --force.`);
+    `instantané écrit dans ${FICHIER_ECRIT} (ignoré par git). Rattrapage : --force.`);
 }
 
 let precedente = null;
@@ -319,11 +330,12 @@ if (semPrec !== semaine && existsSync(fichierPrec)) {
 
 process.stdout.write(JSON.stringify({
   ...instantane,
-  archive: { fichier: FICHIER_SEMAINE, nominale: ARCHIVE_NOMINALE,
-    note: ARCHIVE_NOMINALE ? undefined : "exécution hors dimanche : fenêtre 7 j décalée, archive versionnée non touchée" },
+  archive: { fichier: FICHIER_ECRIT, versionnee: ARCHIVE_ECRITE,
+    motif: ARCHIVE_ECRITE ? undefined
+      : !collecte.complete ? "collecte incomplète : chiffres faux, archive versionnée non touchée"
+      : "exécution hors dimanche : fenêtre 7 j décalée, archive versionnée non touchée" },
   semaine_precedente: precedente
     ? { semaine: precedente.semaine, local_cout_usd: precedente.local?.cout_usd_7j ?? null,
         local_par_modele: precedente.local?.par_modele ?? null, cloud: precedente.cloud ?? null }
     : null,
-  erreurs: erreurs.length ? erreurs : undefined,
 }, null, 1) + "\n");
