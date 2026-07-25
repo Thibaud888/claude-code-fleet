@@ -98,7 +98,14 @@ Une par item retenu, via `gh issue create --repo VOTRE-COMPTE/<repo>` :
   <LA commande qui échoue aujourd'hui et devra passer (gate n°3) + « verify passe »>
   ## En fin de PR
   Cocher cet item dans BACKLOG.md (même PR) + lien de la PR.
+  ## Si tu dois poser une question
+  UNE seule, en clair : une ligne qui dit le choix vu de mon côté (sans jargon), puis un bloc
+  `**Options :**` de 2 à 4 réponses numérotées décrites par leur CONSÉQUENCE (ce que je verrai,
+  ce que ça coûte) — pas par leur mécanisme —, puis `**Recommandation :** option N — pourquoi`.
+  Le détail technique va dessous, dans un repli `<details>`. Je réponds par un numéro.
   ```
+  **Règle du clair** (socle) : le titre de l'issue et tout texte qui m'est destiné se lisent sans
+  être technicien ; le jargon vit dans le contexte et la DoD, pas dans le titre ni dans la question.
 
 #### 6. Restituer
 Table : repo · item · issue (lien) · modèle. + les items en repli handoff Cloud,

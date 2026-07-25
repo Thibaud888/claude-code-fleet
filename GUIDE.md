@@ -492,6 +492,15 @@ socle trop long n'est plus lu.
 > revenait à « à l'aveugle » : ces PR ne se mergent désormais que si leur corps porte une
 > section `## Vérification` (la commande lancée et son résultat).
 
+> 🆕 Et une consigne **entrée**, pour l'exemple inverse : la **règle du clair** (besoins 1 et 3).
+> Ce qui est destiné à l'humain — titre d'item de backlog, question posée par une session — se
+> lit sans être technicien ; le jargon passe après le tiret, ou sous un repli `<details>`. Le
+> constat déclencheur : des backlogs dont les titres étaient devenus des codes (`P2`, `E3.5`)
+> et des questions à options qui décrivaient un **mécanisme** au lieu d'un choix — illisibles,
+> donc indécidables. Domicile : le socle global (modèle lié ci-dessus) ; elle est déclinée là où
+> ce texte est *produit* (skills `/backlog` et `/dispatch`, prompts des workflows, templates du
+> kit), sinon elle ne serait qu'un vœu.
+
 ---
 
 ## 13. Recettes pas à pas

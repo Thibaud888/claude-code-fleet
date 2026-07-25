@@ -40,6 +40,13 @@ les clones locaux (partagés entre sessions, parfois en retard). Complément de 
 - **Anti-collision.** Avant tout traitement ou écriture : si une issue `claude` est ouverte sur
   le repo, le signaler (sa PR touchera aussi BACKLOG.md) et ne continuer qu'avec l'accord de
   l'utilisateur — bloquant en mode cloud (max 1 issue `claude` par repo).
+- **Règle du clair** (socle global). Le **titre** d'un item se lit sans être technicien : ce que
+  ça change pour l'utilisateur, en français courant, sans nom de fichier ni de fonction, sans sigle ni
+  anglicisme non traduit — tout le jargon reste **après le tiret**, intact. Idem pour toute
+  question posée ici : une ligne « en clair » d'abord, options décrites par leur **conséquence**
+  (ce qu'il verra, ce que ça coûte) et non par leur mécanisme, détail technique en repli
+  `<details>`. Vaut à l'écriture (`ajoute`) comme à la relecture : un titre existant illisible
+  se reformule au passage, sans toucher au détail.
 - **Marqueurs.** Un `📱` en fin d'item = promu depuis le codex FleetView (workflow
   `codex-cadrage.yml` de claude-ops) ; « ⚠️ hors-Actions » = infaisable en session Actions
   (accès web ou autre workflow requis) → jamais en mode cloud, traiter en local ou en session
@@ -89,8 +96,8 @@ Procédure commune : GET contents (contenu + `sha` au moment T) → modifier →
 avec le `sha` (base64 : Node/Python/Git Bash). PUT refusé (branche protégée) → repli
 branche + PR auto-merge. 409 → re-GET et rejouer.
 
-- **`ajoute`** : reformater l'idée au format kit `titre — contexte/DoD` (une ligne) et montrer
-  la reformulation avant d'écrire ; repo non déductible du contexte → AskUserQuestion.
+- **`ajoute`** : reformater l'idée au format kit `titre — contexte/DoD` (une ligne), **titre en
+  clair** (cf. règles transverses), et montrer la reformulation avant d'écrire ; repo non déductible du contexte → AskUserQuestion.
   **Grosse ambiguïté seulement** (la réponse changerait le périmètre, le repo cible ou le sens
   de l'item — pas un détail de formulation) → poser UNE question de précision (AskUserQuestion,
   ≤ 4 options) avant de reformuler ; jamais systématique : au doute léger, deviner et laisser

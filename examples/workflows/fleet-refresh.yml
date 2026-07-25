@@ -1,0 +1,54 @@
+# Rafraîchit le registre de flotte (fleet/fleet.json) — 0 token, pur script Node (aucune
+# session Claude). Comble une dérive silencieuse constatée à l'usage (revue 2026-07,
+# rapport/revue-2026-07.md §2) : fleet.json ne se mettait à jour QUE quand quelqu'un lançait
+# `node scripts/fleet.mjs` à la main. Sert aussi de pré-requis au bouton « Rafraîchir le
+# registre » de FleetView (audit UX 2026-07-14 — voir fleetview/BACKLOG.md
+# « Registre rafraîchissable depuis l'interface » et fleetview/scripts/veilleur.mjs).
+#
+# Écriture directe par API contents (comme brief-hebdo.yml pour rapport/briefs/), pas une PR :
+# fleet.json est un registre généré et idempotent, pas une revue humaine — une PR pour ce
+# fichier coûterait un run + un merge pour rien.
+#
+# Cron avant kit-propagation (6h15 UTC) et le brief hebdo (6h45 UTC) : les deux lisent
+# fleet.json (repos `actif`) — le registre doit être frais avant eux.
+name: Rafraîchir le registre
+
+on:
+  schedule:
+    - cron: "30 5 * * 1" # UTC — lundi 7h30 CEST / 6h30 CET
+  workflow_dispatch: {}
+
+concurrency:
+  group: fleet-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read # fleet.json lu depuis le checkout ; l'écriture passe par FLEET_GH_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Générer le registre
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_GH_TOKEN }}
+        run: node scripts/fleet.mjs
+
+      - name: Committer si le registre a changé
+        env:
+          GH_TOKEN: ${{ secrets.FLEET_GH_TOKEN }}
+        run: |
+          if git diff --quiet -- fleet/fleet.json; then
+            echo "Registre inchangé, rien à committer."
+            exit 0
+          fi
+          sha=$(gh api repos/VOTRE-COMPTE/claude-ops/contents/fleet/fleet.json --jq .sha)
+          gh api -X PUT repos/VOTRE-COMPTE/claude-ops/contents/fleet/fleet.json \
+            -f message="chore: registre rafraîchi (fleet-refresh.yml)" \
+            -f content="$(base64 -w0 fleet/fleet.json)" \
+            -f sha="$sha"
