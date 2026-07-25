@@ -11,6 +11,21 @@
   **l'abonnement Claude** (OAuth, cf. `fleet-kit/dispatch.yml`) — pas de crédits API ; l'API
   ne sert qu'aux apps qui ont leur propre clé.
 
+## Règle du clair
+Ce que je lis doit se comprendre **sans être technicien** ; la technique n'est pas retirée,
+elle passe **après**. Sans ça, un item de backlog relu trois semaines plus tard ou une question
+posée par une session pendant que je suis au téléphone sont *indécidables* : je ne peux pas
+arbitrer ce que je ne comprends pas.
+- **Item de backlog** (`titre — contexte/DoD`) : le **titre** dit ce que ça change pour moi, en
+  français courant — ni nom de fichier ou de fonction, ni sigle, ni code de roadmap (`E3.5`),
+  ni anglicisme non traduit. Tout le jargon utile à l'implémentation va **après le tiret**,
+  intact. Le format le permettait déjà : la vue `/backlog` n'affiche que le titre.
+- **Question posée** : d'abord UNE ligne « en clair » (le choix vu de mon côté), puis des
+  options décrites par leur **conséquence** (ce que je verrai, ce que ça coûte) et non par leur
+  mécanisme, puis la recommandation. Le détail technique va dessous, dans un repli `<details>`.
+  Vaut pour `AskUserQuestion` comme pour les commentaires d'issue (format à options).
+- Test : si quelqu'un qui ne code pas ne peut pas choisir en lisant la partie haute, c'est raté.
+
 ## Règles d'efficacité (flotte)
 - **MAP.md d'abord** : si le repo a une `MAP.md`, la lire AVANT toute exploration ;
   n'explorer que ce qu'elle ne couvre pas.
