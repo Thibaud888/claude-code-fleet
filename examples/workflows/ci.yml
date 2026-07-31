@@ -1,0 +1,29 @@
+# CI du repo méta — les 6 suites de tests des scripts de pilotage.
+#
+# Pourquoi ce fichier existe : `backlog-collect`, `brief-rade`, `collecte`, `guard`,
+# `regles-flotte` et `token-canari` arbitrent le dispatch, le brief hebdomadaire et la
+# garde anti-push. Jusqu'ici, aucune ne s'exécutait si une session n'y pensait pas — une
+# régression y serait passée inaperçue jusqu'à casser un lundi matin.
+#
+# ⚠️ Ce fichier ne peut être modifié qu'en session LOCALE : le token de l'app GitHub
+# n'a pas la permission `workflows`, et une session Actions échouerait en le poussant
+# (le run resterait vert, cf. fleet-kit#5).
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: Tests des scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      # Aucune dépendance à installer : les scripts n'utilisent que la bibliothèque
+      # standard de Node, et les tests tournent sans réseau.
+      - run: npm test

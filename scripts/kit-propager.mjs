@@ -3,9 +3,12 @@
 //
 // Ne propage QUE ce que le kit possède et fait évoluer :
 //   - les skills de session `templates/common/.claude/skills/<nom>/SKILL.md` (écrasées) ;
+//   - les RÈGLES DE FLOTTE manquantes dans la section « Règles de travail (flotte) » du
+//     `CLAUDE.md` du repo — ajout seul, jamais d'écrasement (cf. scripts/regles-flotte.mjs) ;
 //   - le fichier `.kit-version` (aligné sur fleet-kit/VERSION).
-// Ne touche JAMAIS : un skill maison propre au repo (nom absent du kit), CLAUDE.md,
-// l'allowlist, les workflows. Ces fichiers-là restent du ressort de `/equiper` (merge doux).
+// Ne touche JAMAIS : un skill maison propre au repo (nom absent du kit), le reste du CLAUDE.md
+// (stack, archi, pièges, règles maison), l'allowlist, les workflows. Ces fichiers-là restent
+// du ressort de `/equiper` (merge doux).
 //
 // Pour chaque repo actif du registre dont le `.kit-version` est en retard :
 //   1 commit sur une branche `chore/kit-flotte-v<VERSION>` (API Git Data, pas de clone),
@@ -20,6 +23,7 @@
 // Prérequis : gh CLI authentifié (local), ou GH_TOKEN/FLEET_GH_TOKEN (PAT cross-repo) en Actions.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fusionner, sectionRegles, TITRE_SECTION } from "./regles-flotte.mjs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -71,7 +75,29 @@ for (const s of skills) {
   const c = contenu(KIT, `templates/common/.claude/skills/${s}/SKILL.md`);
   if (c) aPoser.set(`.claude/skills/${s}/SKILL.md`, c);
 }
+// Section « Règles de travail (flotte) » du modèle de CLAUDE.md : sa liste de puces est la
+// référence. Le CLAUDE.md d'un repo n'est jamais écrasé — on n'y ajoute que les règles absentes.
+const sectionKit = sectionRegles(contenu(KIT, "templates/common/CLAUDE.md.tpl"))?.corps ?? null;
+if (!sectionKit) console.log(`⚠ ${TITRE_SECTION} introuvable dans le modèle du kit — règles non propagées.`);
 console.log(`Kit ${KIT} v${version} — ${skills.length} skills : ${skills.join(", ")}\n`);
+
+// Règles de flotte manquantes dans le CLAUDE.md d'un repo → [chemin, contenu] ou null.
+// `motif` porte de quoi restituer le cas au bilan (rien à faire, pas de section, ajouts).
+const majRegles = (repo, branche, motif) => {
+  if (!sectionKit) return null;
+  const md = contenu(repo, "CLAUDE.md", branche);
+  if (md === null) { motif.regles = "pas de CLAUDE.md"; return null; }
+  const f = fusionner(md, sectionKit);
+  if (!f) { motif.regles = "CLAUDE.md sans section de règles — à porter à la main"; return null; }
+  // Une formulation locale n'est ni migrée ni complétée : elle est dite, jamais devinée.
+  motif.aLaMain = f.ignorees.filter((i) => i.motif.startsWith("formulation locale")).map((i) => i.quoi);
+  if (!f.ajoutees.length && !f.migrees.length) return null;
+  motif.regles = [
+    f.ajoutees.length && `ajoutées : ${f.ajoutees.join(", ")}`,
+    f.migrees.length && `re-formulées par le kit : ${f.migrees.join(", ")}`,
+  ].filter(Boolean).join(" ; ");
+  return ["CLAUDE.md", f.contenu];
+};
 
 // ---- 2. Les repos en retard ----------------------------------------------------------
 const registre = JSON.parse(readFileSync(FLEET_PATH, "utf8"));
@@ -91,15 +117,21 @@ for (const r of cibles) {
   const branche = `chore/kit-flotte-v${version}`;
   try {
     // Ce qui change réellement (idempotence : on ne commite que les vrais diffs).
+    const motif = {};
     const diffs = [...aPoser].filter(([p, c]) => contenu(repo, p, r.default_branch) !== c);
+    const regles = majRegles(repo, r.default_branch, motif);
+    if (regles) diffs.push(regles);
+    if (motif.regles && !regles) console.log(`  ⚠ ${r.repo} — ${motif.regles}`);
+    if (motif.aLaMain?.length) console.log(`  ⚠ ${r.repo} — formulation locale, à porter à la main : ${motif.aLaMain.join(", ")}`);
     if (!diffs.length) {
       console.log(`○ ${r.repo} — déjà à jour (aucun diff)`);
       bilan.push({ repo: r.repo, etat: "déjà à jour" });
       continue;
     }
-    const nouveaux = diffs.filter(([p]) => p !== ".kit-version").map(([p]) => p.split("/")[2]);
+    const nouveaux = diffs.filter(([p]) => p !== ".kit-version" && p !== "CLAUDE.md").map(([p]) => p.split("/")[2]);
     if (DRY) {
-      console.log(`→ ${r.repo} — poserait : ${nouveaux.join(", ") || "(rien)"} + .kit-version ${r.kit_version} → ${version}`);
+      const quoi = [nouveaux.join(", "), regles && `CLAUDE.md (${motif.regles})`].filter(Boolean).join(" + ");
+      console.log(`→ ${r.repo} — poserait : ${quoi || "(rien)"} + .kit-version ${r.kit_version} → ${version}`);
       bilan.push({ repo: r.repo, etat: "dry-run" });
       continue;
     }
@@ -130,6 +162,7 @@ for (const r of cibles) {
     const message =
       `chore: kit de flotte v${version}\n\n` +
       `Skills de session du kit alignées (${nouveaux.join(", ") || "aucune"}).\n` +
+      (regles ? `CLAUDE.md : ${motif.regles} (ajout seul, le reste du fichier est intact).\n` : "") +
       `Propagé par claude-ops/scripts/kit-propager.mjs.\n\n` +
       `Co-Authored-By: Claude <noreply@anthropic.com>`;
     const commit = ghJson(["api", `repos/${repo}/git/commits`, "--input", "-"], false,
@@ -137,7 +170,7 @@ for (const r of cibles) {
     gh(["api", "-X", "POST", `repos/${repo}/git/refs`, "-f", `ref=refs/heads/${branche}`, "-f", `sha=${commit.sha}`], true) ??
       gh(["api", "-X", "PATCH", `repos/${repo}/git/refs/heads/${branche}`, "-f", `sha=${commit.sha}`, "-F", "force=true"]);
 
-    const corps = `Propagation du kit de flotte **v${r.kit_version} → v${version}**.\n\nSkills de session alignées sur \`fleet-kit/templates/common/.claude/skills/\` : ${nouveaux.map((n) => `\`/${n}\``).join(", ") || "—"}.\nVersionnées dans le repo, donc disponibles en **session Cloud**.\n\nPR ouverte automatiquement par \`claude-ops/scripts/kit-propager.mjs\`.\n\n## Vérification\nCopie mécanique : contenu strictement identique aux fichiers de \`fleet-kit\` v${version} (aucune ligne rédigée, diff limité aux fichiers du kit listés ci-dessus).`;
+    const corps = `Propagation du kit de flotte **v${r.kit_version} → v${version}**.\n\nSkills de session alignées sur \`fleet-kit/templates/common/.claude/skills/\` : ${nouveaux.map((n) => `\`/${n}\``).join(", ") || "—"}.\nVersionnées dans le repo, donc disponibles en **session Cloud**.\n${regles ? `\n**CLAUDE.md** — ${motif.regles}. Ajout **seul** : les règles déjà présentes, la commande de vérification de ce repo et tout le reste du fichier (stack, archi, pièges, consignes maison) ne sont pas touchés.\n` : ""}\nPR ouverte automatiquement par \`claude-ops/scripts/kit-propager.mjs\`.\n\n## Vérification\nCopie mécanique : contenu strictement identique aux fichiers de \`fleet-kit\` v${version} (aucune ligne rédigée, diff limité aux fichiers du kit listés ci-dessus)${regles ? `, plus l'insertion additive dans \`CLAUDE.md\` — logique pure couverte par \`scripts/regles-flotte.test.mjs\` (8 cas, dont idempotence et non-écrasement)` : ""}.`;
     const url = gh([
       "pr", "create", "--repo", repo, "--base", r.default_branch, "--head", branche,
       "--title", `chore: kit de flotte v${version}`, "--body", corps,

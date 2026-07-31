@@ -14,7 +14,14 @@
 // Le registre est LA source que lisent /dispatch, le brief quotidien, la veille
 // mensuelle et l'hygiène hebdo — aucune liste de repos en dur ailleurs.
 //
-// Usage : node scripts/fleet.mjs   (prérequis : gh CLI authentifié)
+// Usage : node scripts/fleet.mjs              → toute la flotte (cron du lundi)
+//         node scripts/fleet.mjs --repo <nom> → un seul repo, les autres entrées intactes
+//
+// Le mode --repo existe pour la fin de course de `/equiper` : rafraîchir 16 repos pour en
+// constater UN seul coûtait assez de temps pour qu'une session saute l'étape, et le registre
+// annonçait alors l'ancien état jusqu'au cron du lundi. ⚠️ À lancer APRÈS le merge de la PR
+// d'équipement : `.kit-version` est lu sur la branche par défaut, donc avant le merge ce
+// script constaterait fidèlement… l'état d'avant.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -49,11 +56,25 @@ if (existsSync(FLEET_PATH)) {
   for (const r of JSON.parse(readFileSync(FLEET_PATH, "utf8")).repos ?? []) existing[r.repo] = r;
 }
 
-console.log(`Découverte de la flotte (${OWNER})...`);
-const repos = JSON.parse(
+const iRepo = process.argv.indexOf("--repo");
+const cible = iRepo !== -1 ? process.argv[iRepo + 1] : null;
+if (iRepo !== -1 && !cible) {
+  console.error("--repo attend un nom de repo.");
+  process.exit(1);
+}
+
+console.log(cible ? `Rafraîchissement de ${OWNER}/${cible}...` : `Découverte de la flotte (${OWNER})...`);
+let repos = JSON.parse(
   gh(["repo", "list", OWNER, "--limit", "200", "--json",
     "name,visibility,isArchived,primaryLanguage,defaultBranchRef"])
 );
+if (cible) {
+  repos = repos.filter((r) => r.name === cible);
+  if (!repos.length) {
+    console.error(`Repo « ${cible} » introuvable chez ${OWNER} (ou archivé).`);
+    process.exit(1);
+  }
+}
 
 const b64 = (s) => Buffer.from(s.replace(/\n/g, ""), "base64").toString("utf8");
 const entries = [];
@@ -119,6 +140,15 @@ for (const repo of repos.sort((a, b) => a.name.localeCompare(b.name))) {
   );
 }
 
+// En mode --repo, la seule entrée recalculée remplace (ou complète) le registre existant :
+// les autres repos sont recopiés tels quels, jamais re-devinés.
+let finales = entries;
+if (cible) {
+  const par = new Map(Object.entries(existing));
+  for (const e of entries) par.set(e.repo, e);
+  finales = [...par.values()].sort((a, b) => a.repo.localeCompare(b.repo));
+}
+
 mkdirSync(dirname(FLEET_PATH), { recursive: true });
 writeFileSync(
   FLEET_PATH,
@@ -127,11 +157,11 @@ writeFileSync(
       _doc: "Registre de flotte — généré par scripts/fleet.mjs. Champs manuels préservés : type, statut, notes. `dispatchable` = une issue labellisée `claude` y lance une session qui peut livrer sa PR (stub claude.yml + secret CLAUDE_CODE_OAUTH_TOKEN + Actions autorisé à créer des PR) ; `dispatch_manque` dit ce qui bloque. C'est le critère de /dispatch — pas kit_version. Lu par /dispatch, brief quotidien, veille mensuelle, hygiène.",
       updated_at: new Date().toISOString().slice(0, 16).replace("T", " "),
       kit_repo: `${OWNER}/fleet-kit`,
-      repos: entries,
+      repos: finales,
     },
     null,
     2
   ) + "\n",
   "utf8"
 );
-console.log(`Registre écrit : ${FLEET_PATH} (${entries.length} repos)`);
+console.log(`Registre écrit : ${FLEET_PATH} (${finales.length} repos${cible ? `, 1 rafraîchi` : ""})`);

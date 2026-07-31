@@ -52,11 +52,29 @@ const block = (msg) => {
   process.exit(2);
 };
 
+// Un `git` ne compte que s'il est en POSITION DE COMMANDE (début de chaîne, ou après un
+// saut de ligne, `&&`, `;`, `|`, une parenthèse) et que la sous-commande visée suit
+// immédiatement — seules les options GLOBALES de git sont tolérées entre les deux.
+// Sans ces deux conditions, les mots « git … push » écrits en PROSE (heredoc, message de
+// commit, --comment) étaient pris pour un vrai push : 4e et 5e familles de faux positifs
+// (2026-07-31). Le prix à payer, assumé : une ligne de heredoc qui COMMENCE par `git push`
+// reste indiscernable d'une vraie commande sans écrire un shell complet.
+const ARG = String.raw`(?:"[^"]*"|'[^']*'|\S+)`;
+const OPT_GLOBALE = String.raw`(?:-C\s+${ARG}|-c\s+${ARG}|--(?:git-dir|work-tree|namespace|exec-path)=${ARG}|--no-pager|--paginate|--bare|--literal-pathspecs|--no-optional-locks|--no-replace-objects|-p)`;
+const gitSousCommande = (motif) =>
+  new RegExp(String.raw`(?:^|[\n;&|(){}])\s*git(?:\s+${OPT_GLOBALE})*\s+${motif}`, "g");
+
+// Une SUPPRESSION de branche distante (`--delete`/`-d`, ou la forme ancienne `:branche`)
+// n'est pas un push vers le tronc : elle ne publie rien. Ce qu'elle supprime est jugé à part,
+// par le contrôle du nom explicite — `git push origin --delete main` reste bloqué.
+const estSuppression = (args) =>
+  /(?:^|\s)(?:--delete|-d)(?:\s|$)/.test(args) || /(?:^|\s):\S/.test(args);
+
 try {
   // --- 1. push direct sur main ---
   // Seule la portion qui suit chaque `git push` (jusqu'au séparateur suivant) est scannée :
   // le reste de la commande (--comment, -m…) peut contenir « main » en prose.
-  const pushMatches = [...cmd.matchAll(/\bgit\b[^&;|\n]*?\bpush\b([^&;|\n]*)/g)];
+  const pushMatches = [...cmd.matchAll(gitSousCommande(String.raw`push\b([^&;|\n]*)`))];
   if (pushMatches.length) {
     // Nom du repo = dossier parent du git-dir commun (rattache un worktree à son repo principal).
     const commonDir = git("rev-parse --git-common-dir");
@@ -68,14 +86,18 @@ try {
       // textuellement le premier push, on prend cette branche comme branche effective ;
       // sinon (pas de création de branche en amont) on retombe sur HEAD.
       const firstPushIndex = pushMatches[0].index;
-      const branchCreates = [...cmd.matchAll(/\bgit\s+(?:checkout\s+-b|switch\s+-c)\s+(?:"([^"]+)"|'([^']+)'|(\S+))/g)]
-        .filter((m) => m.index < firstPushIndex);
+      const branchCreates = [
+        ...cmd.matchAll(gitSousCommande(String.raw`(?:checkout\s+-b|switch\s+-c)\s+(?:"([^"]+)"|'([^']+)'|(\S+))`)),
+      ].filter((m) => m.index < firstPushIndex);
       const lastBranchCreate = branchCreates[branchCreates.length - 1];
       const branch = lastBranchCreate
         ? (lastBranchCreate[1] ?? lastBranchCreate[2] ?? lastBranchCreate[3])
         : git("rev-parse --abbrev-ref HEAD");
+      // La branche courante ne condamne QUE s'il reste un push qui publie quelque chose :
+      // ranger des branches distantes (`--delete`) depuis le tronc est légitime.
+      const publieQuelqueChose = pushMatches.some((m) => !estSuppression(m[1]));
       const pushesToTrunk =
-        ["main", "master"].includes(branch) ||
+        (publieQuelqueChose && ["main", "master"].includes(branch)) ||
         pushMatches.some((m) => /(\s|:)(main|master)(\s|$)/.test(m[1]));
       if (pushesToTrunk) {
         block(

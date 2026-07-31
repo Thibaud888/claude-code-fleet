@@ -13,16 +13,19 @@ const GUARD = join(dirname(fileURLToPath(import.meta.url)), "guard.mjs");
 const root = mkdtempSync(join(tmpdir(), "guard-test-"));
 const sh = (c) => execSync(c, { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
 
-const mkRepo = (name) => {
+const mkRepo = (name, tronc = "main") => {
   const dir = join(root, name);
-  sh(`git init -q -b main "${dir}"`);
+  sh(`git init -q -b ${tronc} "${dir}"`);
   sh(`git -C "${dir}" -c user.email=guard@test -c user.name=guard commit -q --allow-empty -m init`);
   return dir;
 };
 
 // « fleetview » joue le repo projet (règle branche + PR), « claude-ops » le repo méta.
+// « site-demo » joue un repo projet dont le tronc s'appelle `master` (cas réel du 5e faux
+// positif : c'est le nom de la branche courante qui déclenchait la garde).
 const proj = mkRepo("fleetview");
 const meta = mkRepo("claude-ops");
+const projMaster = mkRepo("site-demo", "master");
 sh(`git -C "${proj}" branch feat/x`);
 mkdirSync(join(proj, "sub"));
 const wtProj = join(root, "wt-proj");
@@ -95,7 +98,63 @@ expect(
 );
 checkout(proj, "feat/x");
 
+// --- faux positif n° 4 du 2026-07-31 : supprimer une branche distante depuis le tronc ---
+// `git push origin --delete <branche>` ne publie rien ; la garde concluait pourtant sur HEAD
+// (= main) et refusait le rangement des branches mortes (contourné à l'époque par gh api).
+checkout(proj, "main");
+expect("suppression d'une branche distante depuis main", false, "git push origin --delete chore/vieille", proj);
+expect("suppression courte (-d) d'une branche distante depuis main", false, "git push origin -d chore/vieille", proj);
+expect("suppression par refspec ancienne (:branche) depuis main", false, "git push origin :chore/vieille", proj);
+expect(
+  "plusieurs suppressions enchaînées depuis main",
+  false,
+  "git push origin --delete chore/a && git push origin --delete chore/b",
+  proj
+);
+// Contrôle positif du même geste : supprimer le TRONC distant doit rester bloqué.
+expect("suppression de main distante (--delete main)", true, "git push origin --delete main", proj);
+expect("suppression de master distante (--delete master)", true, "git push origin --delete master", proj);
+expect("suppression de main distante (-d main)", true, "git push origin -d main", proj);
+expect(
+  "suppression légitime PUIS vrai push nu depuis main",
+  true,
+  "git push origin --delete chore/a && git push",
+  proj
+);
+
+// --- faux positif n° 5 du 2026-07-31 : « git push » en PROSE, depuis une branche `master` ---
+// Une commande qui n'invoque aucun git (heredoc, message de commit) était refusée dès lors
+// qu'elle contenait les mots « git … push » ET que la branche courante s'appelait main/master.
+expect(
+  "heredoc contenant « git push » dans un commentaire de code (branche master)",
+  false,
+  "cat > /tmp/x.mjs <<'EOF'\n// le hook guard.mjs interdit `git push` sur master\nconsole.log(1);\nEOF\nnode /tmp/x.mjs",
+  projMaster
+);
+expect(
+  "message de commit citant « git push origin main » (branche master)",
+  false,
+  `git commit -m "doc : rappeler que git push origin main est interdit"`,
+  projMaster
+);
+expect(
+  "prose « git push » sans aucune commande git (branche master)",
+  false,
+  `gh issue comment 7 --body "le hook a refusé mon git push sur master"`,
+  projMaster
+);
+// Contrôle positif du même geste : depuis ce même repo `master`, un VRAI push reste bloqué.
+expect("push nu depuis le tronc master (contrôle positif)", true, "git push", projMaster);
+expect("push explicite vers master (contrôle positif)", true, "git push origin master", projMaster);
+expect(
+  "heredoc en prose PUIS vrai push nu depuis master",
+  true,
+  "cat > /tmp/x.mjs <<'EOF'\n// git push sur master est interdit\nEOF\ngit push",
+  projMaster
+);
+
 // --- non-régression ---
+checkout(proj, "feat/x");
 expect("push d'une branche feature depuis un repo projet", false, "git push -u origin feat/x", proj);
 expect(
   "checkout -b <branche> puis push explicite vers master (doit rester bloqué)",

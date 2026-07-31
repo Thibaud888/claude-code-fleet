@@ -9,16 +9,16 @@
 // d'être « ignorés » au parsing — soit ~60-70 % de tokens d'historique mort payés à chaque
 // appel (cf. chantiers/BACKLOG.md, item hygiène tokens /backlog). Ici le fetch + décodage +
 // filtrage des `[x]` + agrégation se font DANS le script : seuls les items ouverts sortent,
-// au format JSON attendu par le widget ({repos:[{name,equipped,session,items:[{n,p,t,d}]}],empty}).
+// au format JSON attendu par le widget :
+//   {repos:[{name,equipped,session,items:[{n,p,t,d}]}], empty:[…], frozen:[{repo,n,p,t,d}]}
 // L'historique reste dans les BACKLOG.md des repos (mémoire in-repo utile) — on ne le déplace pas.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url))); // .../claude-ops
 const OWNER = "VOTRE-COMPTE";
-const filtre = (process.argv[2] ?? "").toLowerCase().trim();
 
 // --- gh helper : renvoie stdout, ou null sur échec (404, réseau…) ---
 function gh(args) {
@@ -35,7 +35,7 @@ function gh(args) {
 // --- Coupe un item en {titre, détail} au 1er séparateur HORS parenthèses ---
 // Séparateur = « — », ou à défaut un « : » espacé (le colon espacé évite de couper sur
 // `04:00`/`http://` ; ignorer les parenthèses évite « (3 items : … » ou « (…— …) »).
-function coupeTitre(s) {
+export function coupeTitre(s) {
   let prof = 0;
   for (let k = 0; k < s.length; k++) {
     const c = s[k];
@@ -52,7 +52,10 @@ function coupeTitre(s) {
 
 // --- Parse un BACKLOG.md : ne garde que les items ouverts `- [ ]` (multi-lignes recollées) ---
 // Numérotation = position parmi les `- [ ]` dans l'ordre du fichier (convention du skill).
-function parseOpen(md) {
+// Les items GELÉS comptent dans cette numérotation (ils restent des `- [ ]` à leur place) :
+// c'est ce qui permet à `/backlog <repo> <n°> degele` de viser le bon item sans renuméroter
+// le reste. Ils sortent seulement de la vue, pas du fichier.
+export function parseOpen(md) {
   const lignes = md.split(/\r?\n/);
   const bruts = [];
   let cur = null; // item ouvert en cours de construction, ou null
@@ -74,50 +77,106 @@ function parseOpen(md) {
   flush();
 
   return bruts.map((raw, i) => {
-    let s = raw.trim();
-    let p = null;
-    const mp = /^\((P1|P2|P3)\)\s*/.exec(s);      // priorité optionnelle en tête
-    if (mp) { p = mp[1]; s = s.slice(mp[0].length); }
-    s = s.replace(/\*\*/g, "").trim();            // le widget n'interprète pas le markdown gras
+    // Le gras est retiré AVANT la lecture des marqueurs : plusieurs items du terrain sont
+    // écrits `- [ ] **(P2) titre**`, et le marqueur y passait inaperçu.
+    let s = raw.trim().replace(/\*\*/g, "").trim();
+    let p = null, gel = false;
+    // Marqueurs optionnels en tête, dans n'importe quel ordre : `(gelé)` et/ou `(P1|P2|P3)`.
+    for (;;) {
+      const mg = /^\(gel[ée]e?\)\s*/i.exec(s);
+      if (mg) { gel = true; s = s.slice(mg[0].length); continue; }
+      const mp = /^\((P1|P2|P3)\)\s*/.exec(s);
+      if (mp) { p = mp[1]; s = s.slice(mp[0].length); continue; }
+      break;
+    }
     const { t, d } = coupeTitre(s);
-    return { n: i + 1, p, t, d };
+    return { n: i + 1, p, t, d, gel };
   });
 }
 
-// --- Repos actifs du registre ---
-const registre = JSON.parse(readFileSync(join(ROOT, "fleet", "fleet.json"), "utf8"));
-let repos = registre.repos.filter((r) => r.statut === "actif");
-if (filtre) repos = repos.filter((r) => r.repo.toLowerCase().includes(filtre));
+// --- Agrégation d'un repo déjà récupéré : sépare ouverts / gelés (testable sans réseau) ---
+export function agrege(out, { nom, equipped, session, raw }) {
+  if (raw == null) { out.empty.push(`${nom} (pas de BACKLOG.md)`); return out; }
+  const ouverts = parseOpen(raw);
+  // Les gelés sortent de `repos[].items` (donc de la vue) mais restent comptés à part : un
+  // congélateur invisible serait une suppression déguisée. Ils gardent leur `n` d'origine.
+  for (const g of ouverts.filter((i) => i.gel)) {
+    out.frozen.push({ repo: nom, n: g.n, p: g.p, t: g.t, d: g.d });
+  }
+  const items = ouverts.filter((i) => !i.gel).map(({ n, p, t, d }) => ({ n, p, t, d }));
+  const nbGel = ouverts.length - items.length;
+  if (items.length === 0) {
+    out.empty.push(`${nom} (à jour${nbGel ? ` · ${nbGel} gelé${nbGel > 1 ? "s" : ""}` : ""})`);
+    return out;
+  }
+  out.repos.push({ name: nom, equipped, session, items });
+  return out;
+}
 
-// --- Repos avec une issue `claude` ouverte (badge « session en cours ») ---
-const sessions = new Set();
-const rawIssues = gh([
-  "search", "issues", "--owner", OWNER, "--label", "claude", "--state", "open",
-  "--json", "repository", "-L", "100",
-]);
-if (rawIssues) {
-  try {
-    for (const it of JSON.parse(rawIssues)) {
-      const nom = it.repository?.name;
-      if (nom) sessions.add(nom);
+// Les détails du terrain pèsent lourd : certains items portent plusieurs milliers de
+// caractères de mesures. Non bridés, ILS dominent le coût de `/backlog` — mesuré le
+// 2026-07-31 : 8 443 caractères de JSON dont 6 259 de seuls détails, et une sortie brute
+// qui dépassait 30 Ko. Le détail intégral se lit par `/backlog <repo> <n> voir`, qui
+// refetche le fichier : rien n'est perdu à le couper ici.
+//   (défaut)   détails coupés à 200 caractères — lisible en prose sans ruiner le contexte
+//   --widget   détails ABSENTS — le widget les replie par défaut, il n'en affiche aucun
+//   --complet  détails intacts — pour un diagnostic, jamais pour l'affichage courant
+const CAP = 200;
+function borner(out, mode) {
+  if (mode === "complet") return out;
+  const traite = (i) => {
+    if (mode === "widget") { delete i.d; return; }
+    if (typeof i.d === "string") {
+      const plat = i.d.replace(/\s+/g, " ").trim();
+      i.d = plat.length > CAP ? `${plat.slice(0, CAP - 1)}…` : plat;
     }
-  } catch { /* sortie inattendue : pas de badge, tant pis */ }
+  };
+  for (const r of out.repos) r.items.forEach(traite);
+  out.frozen.forEach(traite);
+  return out;
 }
 
-// --- Fetch + filtrage par repo ---
-const out = { repos: [], empty: [] };
-for (const r of repos) {
-  const nom = r.repo;
-  const equipped = r.kit_version != null;
-  const raw = gh([
-    "api", `repos/${OWNER}/${nom}/contents/BACKLOG.md`,
-    "-H", "Accept: application/vnd.github.raw",
+function main() {
+  const args = process.argv.slice(2);
+  const mode = args.includes("--widget") ? "widget" : args.includes("--complet") ? "complet" : "borne";
+  const filtre = (args.find((a) => !a.startsWith("--")) ?? "").toLowerCase().trim();
+
+  // --- Repos actifs du registre ---
+  const registre = JSON.parse(readFileSync(join(ROOT, "fleet", "fleet.json"), "utf8"));
+  let repos = registre.repos.filter((r) => r.statut === "actif");
+  if (filtre) repos = repos.filter((r) => r.repo.toLowerCase().includes(filtre));
+
+  // --- Repos avec une issue `claude` ouverte (badge « session en cours ») ---
+  const sessions = new Set();
+  const rawIssues = gh([
+    "search", "issues", "--owner", OWNER, "--label", "claude", "--state", "open",
+    "--json", "repository", "-L", "100",
   ]);
-  if (raw == null) { out.empty.push(`${nom} (pas de BACKLOG.md)`); continue; }
-  const items = parseOpen(raw);
-  if (items.length === 0) { out.empty.push(`${nom} (à jour)`); continue; }
-  out.repos.push({ name: nom, equipped, session: sessions.has(nom), items });
+  if (rawIssues) {
+    try {
+      for (const it of JSON.parse(rawIssues)) {
+        const nom = it.repository?.name;
+        if (nom) sessions.add(nom);
+      }
+    } catch { /* sortie inattendue : pas de badge, tant pis */ }
+  }
+
+  // --- Fetch + filtrage par repo ---
+  const out = { repos: [], empty: [], frozen: [] };
+  for (const r of repos) {
+    const nom = r.repo;
+    agrege(out, {
+      nom,
+      equipped: r.kit_version != null,
+      session: sessions.has(nom),
+      raw: gh(["api", `repos/${OWNER}/${nom}/contents/BACKLOG.md`, "-H", "Accept: application/vnd.github.raw"]),
+    });
+  }
+
+  // JSON compact : injecté tel quel dans le widget (`const DATA=…;`), pas besoin d'indentation.
+  process.stdout.write(JSON.stringify(borner(out, mode)) + "\n");
 }
 
-// JSON compact : injecté tel quel dans le widget (`const DATA=…;`), pas besoin d'indentation.
-process.stdout.write(JSON.stringify(out) + "\n");
+// Corps CLI seulement en exécution directe : le test importe ce module et ne doit
+// déclencher ni lecture du registre ni appel `gh`.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
