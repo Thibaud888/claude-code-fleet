@@ -1,4 +1,4 @@
-# 🛠️ claude-ops — piloter une flotte de repos avec Claude Code
+# 🛠️ claude-code-fleet — piloter une flotte de repos avec Claude Code
 
 > **La tour de contrôle d'un usage de Claude Code.** Un seul dépôt qui décrit comment on
 > travaille, liste ses projets, outille ses sessions (permissions, hooks, commandes maison),
@@ -6,9 +6,10 @@
 > les traces. Objectif affiché : **passer de « une session à la fois, tout retapé à la main »
 > à « chef d'orchestre d'une flotte briefée, automatisée et surveillée ».**
 
-> ℹ️ **Ce dépôt est un extrait anonymisé, publié comme modèle.** Le dépôt public s'appelle
-> `claude-code-fleet` ; le système qu'il documente s'appelle **`claude-ops`** — c'est le nom
-> à donner à ton clone adapté. C'est le vrai système d'une personne, dont on a retiré l'état
+> ℹ️ **Ce dépôt est un extrait anonymisé, publié comme modèle.** `claude-code-fleet` est le
+> nom de cette vitrine ; le système qu'elle documente s'appelle **`claude-ops`** — c'est le
+> nom à donner à ton clone adapté, et celui que tu croiseras dans les exemples et les chemins
+> de ces pages. C'est le vrai système d'une personne, dont on a retiré l'état
 > privé (registre réel, backlog, rapports, mémoire, dépense)
 > pour ne garder que **la méthode et l'outillage réutilisables**. Deux jetons se remplacent
 > partout par un simple find/replace : `VOTRE-COMPTE` (ton compte GitHub) et `~/vos-repos`
