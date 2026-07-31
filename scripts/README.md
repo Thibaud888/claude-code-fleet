@@ -260,7 +260,6 @@ Unregister-ScheduledTask -TaskName "ClaudeOps-HygieneGitHub" -Confirm:$false   #
 | `meta-ratio.mjs` | part du **méta** dans l'activité de la flotte (lu par la revue mensuelle) | `gh` authentifié · `fleet/fleet.json` |
 | `ntfy.mjs` | notification téléphone (`node scripts/ntfy.mjs "titre" "corps"`) | topic dans env `NTFY_TOPIC` ou fichier `~/.claude/ntfy-topic` |
 | `statusline.mjs` | statusline Claude Code (% de contexte) | aucun — lit le JSON du harness sur stdin |
-| `gist-cleanup.mjs` | purge des gists de brief > 30 j | `gh` authentifié |
 
 Tous : **Node ≥ 18** (fetch natif). La variable d'env **`FLEET_OWNER`** remplace le compte
 par défaut de `fleet.mjs` / `brief-data.mjs` / `tokens-hebdo.mjs` **sans éditer les sources**.

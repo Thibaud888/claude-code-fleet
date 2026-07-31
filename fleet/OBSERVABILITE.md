@@ -55,5 +55,12 @@ commentaire de diagnostic, pas de code. Testé de bout en bout sur un repo à cr
   par `--body`/pipe et vérifier par un run.
 - Les workflows réutilisables re-lancés (`gh run rerun`) gardent l'ANCIENNE version du workflow
   appelé — après un fix dans fleet-kit, déclencher un **nouveau** run (`gh workflow run`).
-- Le réglage « Actions peut créer des PRs » est **par repo** (fait sur les 10 le 2026-07-10) ;
-  tout nouveau repo devra l'activer (commande dans la skill `/equiper`, à lancer par toi).
+- Le réglage « Actions peut créer des PRs » est **par repo** ; tout nouveau repo devra
+  l'activer à la main (la commande figure dans la skill `/equiper`).
+- **Un check jamais pingé ne surveille rien.** Tant qu'aucun ping n'est arrivé, Healthchecks
+  laisse le check au statut `new` **et ne lui calcule aucune échéance** (`next_ping: null` à
+  l'API, là où tout check `up` en porte une). Or l'alerte se déclenche au passage `up → down` :
+  un check `new` ne peut donc jamais alerter, même si sa date planifiée est dépassée depuis
+  des semaines. Il attend en silence, et son silence ressemble à « tout va bien ».
+  → **Envoyer un ping d'amorçage à la création** (avec un corps qui dit que c'en est un), et
+  ne considérer un chien de garde comme actif qu'après avoir vu son `next_ping` renseigné.

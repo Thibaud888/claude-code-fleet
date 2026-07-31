@@ -385,7 +385,12 @@ ne s'exécutent que quand ton app/ta machine est allumée).
 > (inertes, `examples/workflows/`), `hygiene.ps1` et les scripts de collecte. Les **tâches
 > planifiées locales de l'app** (`revue-mensuelle-flotte`, `bilan-tokens-hebdo`) ne sont pas
 > incluses — leurs prompts vivent dans l'app Claude Code ; seuls leurs scripts de collecte
-> (`tokens-hebdo.mjs`) sont là. Le **veilleur** relève d'une app de pilotage séparée, hors
+> (`tokens-hebdo.mjs`) sont là. Ces deux-là **ne peuvent pas** migrer en cron cloud, et ce
+> n'est pas une question de budget : elles lisent l'archive locale des sessions et les données
+> d'usage de la machine, qu'on a délibérément choisi de ne jamais pousser. Un cron distant
+> n'aurait accès à rien de ce qu'elles existent pour lire. Le brief, lui, n'avait pas cette
+> contrainte — d'où sa migration en Actions. La règle générale : *ce qui lit du local reste
+> local ; tout le reste part en cron distant.* Le **veilleur** relève d'une app de pilotage séparée, hors
 > périmètre de cet extrait : sa ligne est gardée ci-dessous parce que le mécanisme se
 > reproduit avec un simple cron GitHub Actions + `ntfy.mjs`.
 
