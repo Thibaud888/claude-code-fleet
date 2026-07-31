@@ -26,7 +26,7 @@ jobs:
   brief:
     runs-on: ubuntu-latest
     permissions:
-      contents: read        # le brief ne commit rien ici : gist + ntfy uniquement
+      contents: read        # l'écriture du brief passe par FLEET_GH_TOKEN (API contents), pas par GITHUB_TOKEN
     steps:
       - uses: actions/checkout@v4
 
@@ -47,7 +47,7 @@ jobs:
           BRIEF_CLOUD: "1"
         run: |
           cat > /tmp/prompt-brief.md << 'FIN_PROMPT'
-          Tu es le chief of staff de la flotte de repos de toi (compte GitHub VOTRE-COMPTE). Produis le BRIEF HEBDO du lundi matin, lisible en 60 secondes, en français et au tutoiement. LECTURE SEULE : aucun commit, aucune écriture dans les repos. Session courte et économe en tokens : uniquement les commandes listées ci-dessous, aucune exploration.
+          Tu es le chief of staff de la flotte de repos de l'utilisateur (compte GitHub VOTRE-COMPTE). Produis le BRIEF HEBDO du lundi matin, lisible en 60 secondes, en français et au tutoiement. LECTURE SEULE : aucun commit, aucune écriture dans les repos. Session courte et économe en tokens : uniquement les commandes listées ci-dessous, aucune exploration.
 
           Étapes :
           1. Lance `node scripts/brief-data.mjs` — il collecte TOUT en un appel (état courant : PRs ouvertes, workflows en échec, issues `claude`, dispatchs en rade, validité du token d'abonnement, chiens de garde Healthchecks ; et semaine écoulée : PRs mergées, issues `claude` fermées avec labels, sessions cloud par repo/workflow, part méta) et sort un JSON compact. Ne lance AUCUNE commande de collecte supplémentaire hors de celles listées plus bas : si le script échoue, signale-le dans le brief et rédige avec ce que tu as.
@@ -74,8 +74,17 @@ jobs:
           # relit dans le log du run (fin des forfaits estimés pour cet automatisme). La session
           # travaille exactement pareil — seule la forme de sa sortie stdout change, et le brief
           # lui-même part par gh/ntfy, pas par stdout.
+          # ⚠️ `Write` et `Bash(cat:*)` sont OBLIGATOIRES : l'étape 3a demande d'écrire le brief
+          # dans /tmp/brief.md. Sans eux, TOUTES les voies d'écriture sont refusées par
+          # l'allowlist (constaté dans les `permission_denials` du run du 2026-07-27 : Write,
+          # `cat > … << EOF`, `echo … | base64` — tous refusés) et le modèle se rabat sur la
+          # seule qui reste, `node -e "…writeFileSync…"`, où le texte du brief doit traverser
+          # le quoting du shell : accents mutilés, emoji réduits à des octets invalides, bref
+          # le charabia publié le 27/07 (« PRs mergåes », « Піrelancer »). Le texte produit par
+          # le modèle était intact — c'est le CHEMIN D'ÉCRITURE qui l'abîmait.
+          # (codex-cadrage.yml, qui écrit lui aussi des fichiers, a `Write` depuis toujours.)
           claude -p "$(cat /tmp/prompt-brief.md)" \
             --model claude-haiku-4-5-20251001 \
             --max-turns 40 \
             --output-format json \
-            --allowedTools "Bash(node:*),Bash(gh:*),Bash(base64:*),Read,Glob,Grep"
+            --allowedTools "Bash(node:*),Bash(gh:*),Bash(base64:*),Bash(cat:*),Read,Write,Glob,Grep"

@@ -10,14 +10,16 @@
 #bk .p{font-size:12px;font-weight:500;padding:1px 8px;border-radius:999px;min-width:24px;text-align:center}
 #bk .t{flex:1;font-size:14px;cursor:pointer;min-width:0}
 #bk .t .no{color:var(--text-muted);font-family:var(--font-mono);font-size:12px;margin-right:6px}
-#bk .d{display:none;font-size:13px;color:var(--text-secondary);margin:2px 0 6px;padding-left:44px;line-height:1.5}
 #bk .act{display:flex;gap:4px}
 #bk .act button{padding:3px 7px;font-size:15px;line-height:1}
+#bk-frozen{font-size:13px;color:var(--text-secondary);margin:2px 0 4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#bk-frozen button{font-size:12px;padding:2px 8px}
 #bk-empty{font-size:13px;color:var(--text-muted);margin:2px 0 12px}
 #bk-bar{display:flex;gap:8px;flex-wrap:wrap}
 #bk-bar button{font-size:13px}
 </style>
 <div id="bk"></div>
+<p id="bk-frozen"></p>
 <p id="bk-empty"></p>
 <div id="bk-bar">
 <button data-g="ajoute">Ajouter un item ↗</button>
@@ -25,9 +27,10 @@
 <button data-g="">Actualiser ↗</button>
 </div>
 <script>
-const DATA={repos:[],empty:[]};
-const PC={P1:"danger",P2:"warning",P3:"accent"};
-const ORD={P1:0,P2:1,P3:2};
+const DATA={repos:[],empty:[],frozen:[]};
+const PC={P1:"danger",P2:"warning",P3:"accent"},ORD={P1:0,P2:1,P3:2};
+const ACT=[["","player-play","Traiter ici"],["cloud","cloud","Envoyer en session cloud"],
+["voir","eye","Voir le détail"],["gele","snowflake","Geler"],["suppr","trash","Retirer"]];
 const esc=s=>s==null?"":String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const chip=p=>PC[p]?`<span class="p" style="background:var(--bg-${PC[p]});color:var(--text-${PC[p]})">${p}</span>`
 :`<span class="p" style="background:var(--surface-1);color:var(--text-muted)">–</span>`;
@@ -36,19 +39,18 @@ const items=[...r.items].sort((a,b)=>(ORD[a.p]??3)-(ORD[b.p]??3)||a.n-b.n);
 const badges=(r.session?'<span class="badge" style="background:var(--bg-accent);color:var(--text-accent)">session en cours</span>':"")
 +(r.equipped?"":'<span class="badge" style="background:var(--bg-warning);color:var(--text-warning)">non équipé</span>');
 return `<div class="card"><div class="head"><span class="repo">${esc(r.name)}</span>${badges}<span class="count">${items.length} item${items.length>1?"s":""}</span></div>`
-+items.map(it=>`<div class="item">${chip(it.p)}<span class="t"><span class="no">${it.n}</span>${esc(it.t)}</span><span class="act">`
-+`<button data-g="${esc(r.name)} ${it.n}" title="Traiter ici" aria-label="Traiter ici"><i class="ti ti-player-play" aria-hidden="true"></i></button>`
-+`<button data-g="${esc(r.name)} ${it.n} cloud" title="Envoyer en session cloud" aria-label="Envoyer en session cloud"><i class="ti ti-cloud" aria-hidden="true"></i></button>`
-+`<button data-g="${esc(r.name)} ${it.n} voir" title="Voir le détail et le prompt" aria-label="Voir le détail"><i class="ti ti-eye" aria-hidden="true"></i></button>`
-+`<button data-g="${esc(r.name)} ${it.n} suppr" title="Retirer du backlog" aria-label="Retirer du backlog"><i class="ti ti-trash" aria-hidden="true"></i></button>`
-+`</span></div><div class="d">${esc(it.d)||"<em>pas de détail</em>"}</div>`).join("")
-+`</div>`;
++items.map(it=>`<div class="item">${chip(it.p)}<span class="t" data-g="${esc(r.name)} ${it.n} voir"><span class="no">${it.n}</span>${esc(it.t)}</span><span class="act">`
++ACT.map(([g,i,t])=>`<button data-g="${esc(r.name)} ${it.n} ${g}" title="${t}" aria-label="${t}"><i class="ti ti-${i}" aria-hidden="true"></i></button>`).join("")
++`</span></div>`).join("")+`</div>`;
 }).join("");
+if(DATA.frozen&&DATA.frozen.length){
+const par=new Map();DATA.frozen.forEach(f=>par.set(f.repo,(par.get(f.repo)||0)+1));
+document.getElementById("bk-frozen").innerHTML=`<span><i class="ti ti-snowflake" aria-hidden="true" style="font-size:14px;vertical-align:-2px;margin-right:4px"></i>Gelés : `
++[...par].map(([r,c])=>`${esc(r)} ${c}`).join(" · ")+`</span><button data-g="gelés">Les revoir ↗</button>`;
+}
 if(DATA.empty&&DATA.empty.length)document.getElementById("bk-empty").textContent="Sans item ouvert : "+DATA.empty.join(" · ");
 document.addEventListener("click",e=>{
-const b=e.target.closest("button[data-g]");
-if(b){sendPrompt(("/backlog "+b.dataset.g).trim());return}
-const t=e.target.closest("#bk .t");
-if(t){const d=t.parentElement.nextElementSibling;if(d)d.style.display=d.style.display==="block"?"none":"block"}
+const b=e.target.closest("[data-g]");
+if(b)sendPrompt(("/backlog "+b.dataset.g).trim());
 });
 </script>

@@ -1,0 +1,15 @@
+{
+  "name": "claude-ops",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Repo méta de la flotte : scripts de pilotage, registre, rapports et skills.",
+  "scripts": {
+    "test": "node --test \"scripts/*.test.mjs\""
+  },
+  "//": [
+    "Pas de `\"type\": \"module\"` : les scripts sont en .mjs (donc ESM quoi qu'il arrive),",
+    "et harvest/harvest-console.js est un .js qui serait cassé par ce réglage.",
+    "Le motif de test est entre guillemets pour que ce soit NODE qui développe le glob",
+    "(depuis Node 21) et non le shell — sinon la commande ne marcherait pas sous Windows."
+  ]
+}

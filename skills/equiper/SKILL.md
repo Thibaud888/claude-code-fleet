@@ -39,7 +39,7 @@ Copier depuis `fleet-kit/templates/common/` puis `templates/<type>/`, **sans éc
 - **`self-heal.yml`** : seulement si le repo a des crons ; remplacer `<NOM_DU_WORKFLOW_CRON>`
   par les `name:` réels des workflows planifiés du repo.
 - **`.claude/no-auto-merge`** : ne JAMAIS le créer ni le supprimer ici — c'est le choix explicite
-  de toi pour ce repo (posé à la création ou à la main). `/equiper` ne touche pas à ce fichier.
+  de l'utilisateur pour ce repo (posé à la création ou à la main). `/equiper` ne touche pas à ce fichier.
 - **`dependabot.yml`** : ajouter l'écosystème `npm` (types node) ou `pip` (types python) au template.
 - **`MAP.md` initiale** : la générer toi-même ici (structure imposée par
   `fleet-kit/.github/workflows/map.yml` : quoi / arborescence annotée / points d'entrée /
@@ -49,7 +49,7 @@ Copier depuis `fleet-kit/templates/common/` puis `templates/<type>/`, **sans éc
 ## 3. Labels + secrets + réglage Actions
 - **Réglage « Actions peut créer des PRs »** (sinon la session dispatch fait le travail mais
   ne peut pas ouvrir la PR — constaté sur notes-bac #13). Le classifieur **refuse que Claude
-  le fasse** (élévation de privilège) → donner la commande à toi, qui la lance lui-même :
+  le fasse** (élévation de privilège) → donner la commande à l'utilisateur, qui la lance lui-même :
   `gh api -X PUT repos/VOTRE-COMPTE/<nom>/actions/permissions/workflow -f default_workflow_permissions=read -F can_approve_pull_request_reviews=true`
   Vérifier ensuite : `gh api repos/VOTRE-COMPTE/<nom>/actions/permissions/workflow`.
 - `gh label create claude --repo VOTRE-COMPTE/<nom> --color 7C3AED --force` ; idem `claude:haiku`
@@ -59,14 +59,22 @@ Copier depuis `fleet-kit/templates/common/` puis `templates/<type>/`, **sans éc
   (les secrets ne se lisent pas) → demander la valeur à l'utilisateur UNE fois par session,
   la poser avec `gh secret set <NOM> --repo ... --body -` (via stdin, ne jamais l'afficher ni
   la logger), puis réutiliser pour les repos suivants de la même session.
-- Si l'utilisateur n'a pas encore de token : lui indiquer `claude setup-token` (abonnement)
-  ou console Anthropic (clé plafonnée 5 €/mois) et continuer sans bloquer (le noter en restitution).
+- Si l'utilisateur n'a pas encore de token : lui indiquer `claude setup-token` — **l'OAuth
+  d'abonnement est la voie normale** (une clé API serait facturée à l'usage) — et continuer sans
+  bloquer (le noter en restitution).
 
 ## 4. Livrer
 - Commit(s) en français, push, **PR** « chore: kit de flotte v$KIT » (base = branche par défaut).
   Exception : repo tout neuf issu de /nouveau-projet → commit direct dans le bootstrap initial.
-- Mettre à jour le registre : `node scripts/fleet.mjs` dans claude-ops (ajuste aussi `type` à la
-  main dans `fleet.json` si la découverte s'était trompée), commit claude-ops sur main.
+- **Attendre le merge de la PR**, puis mettre à jour le registre :
+  `node scripts/fleet.mjs --repo <nom>` dans claude-ops (ajuste aussi `type` à la main dans
+  `fleet.json` si la découverte s'était trompée), commit claude-ops sur main.
+  ⚠️ **L'ordre n'est pas décoratif** : `.kit-version` est lu sur la branche par défaut. Lancé
+  avant le merge, le script constate fidèlement l'état d'AVANT et le grave dans le registre —
+  la dérive qu'on croyait corriger. PR non mergée (CI rouge, `.claude/no-auto-merge`) → le dire
+  en restitution et laisser le registre tranquille, plutôt que d'y écrire du faux.
+- **Vérifier avant de conclure** : relire l'entrée du repo dans `fleet/fleet.json` et constater
+  le `kit_version` attendu. Sans cette lecture, on ne sait pas si l'étape a servi.
 
 ## 5. Restituer
 Lien PR · fichiers posés / laissés tels quels · secrets posés / manquants · actions manuelles

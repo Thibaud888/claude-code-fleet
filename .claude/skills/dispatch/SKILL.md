@@ -20,7 +20,7 @@ Contrainte machine : scripts en **Node ou Python** (jamais PowerShell).
   `CLAUDE_CODE_OAUTH_TOKEN`, ou si Actions n'a pas le droit de créer des PR, la session brûle des
   tokens pour rien (elle échoue, ou travaille sans pouvoir livrer).
 - Repo actif mais `dispatchable == false` → ne pas dispatcher ; dire ce que `dispatch_manque`
-  contient, et le geste correspondant. Les deux réglages GitHub sont **à la main de toi**
+  contient, et le geste correspondant. Les deux réglages GitHub sont **à la main de l'utilisateur**
   (le classifieur refuse que Claude pose un secret ou élève des privilèges) :
   - `claude.yml` → `/equiper <repo>` (ou, repo méta, poser le seul stub) ;
   - `CLAUDE_CODE_OAUTH_TOKEN` → `gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo VOTRE-COMPTE/<repo>` ;
@@ -28,7 +28,10 @@ Contrainte machine : scripts en **Node ou Python** (jamais PowerShell).
   Après coup : `node scripts/fleet.mjs` pour rafraîchir le registre.
 - Pour chaque candidat : `gh api repos/VOTRE-COMPTE/<repo>/contents/BACKLOG.md --jq .content | base64 -d`
   (404 = pas de backlog, ignorer). Items = lignes `- [ ]` (format kit : `titre — contexte/DoD`,
-  marqueur de priorité optionnel en tête : `(P1|P2|P3)`).
+  marqueurs optionnels en tête, ordre libre : `(P1|P2|P3)` et `(gelé)`).
+  **Un item `(gelé)` n'est jamais un candidat** : c'est un « pas maintenant » explicite de
+  l'utilisateur (cf. skill `/backlog`). L'écarter sans le proposer ; pour le remettre en jeu,
+  `/backlog <repo> <n°> degele`.
 
 ### 2. Sélection
 Présenter les items groupés par repo, avec une recommandation par item : gain probable,
@@ -136,7 +139,7 @@ Le suivi visuel se fait dans **FleetView** (issues + PRs + runs, rien d'autre à
 - Secrets : si `CLAUDE_CODE_OAUTH_TOKEN` manque sur un repo candidat (`gh secret list`),
   le signaler et proposer `/equiper` au lieu de créer une issue qui échouera.
 - Plafond par défaut : **5 issues** par dispatch — pas une contrainte de budget (tout tourne
-  sur l'abonnement), mais la taille de lot que toi peut absorber en retours/PRs.
+  sur l'abonnement), mais la taille de lot que l'utilisateur peut absorber en retours/PRs.
   Ajustable s'il le demande explicitement.
 - **1 commentaire = 1 lot** — pour les **retours de relecture** sur une PR/issue : les grouper
   en UN seul commentaire `@claude` (chaque commentaire relance une session Actions complète).
