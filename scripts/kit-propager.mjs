@@ -101,6 +101,9 @@ const majRegles = (repo, branche, motif) => {
 
 // ---- 2. Les repos en retard ----------------------------------------------------------
 const registre = JSON.parse(readFileSync(FLEET_PATH, "utf8"));
+// `actif` SEUL : un projet en `veille` (v1 sortie, plus de dev) n'a pas besoin de la dernière
+// version du kit — lui ouvrir une PR de maintenance chaque lundi serait du travail à merger sur
+// un projet auquel on ne touche plus. Il repasse en `actif` s'il faut le reprendre.
 const cibles = registre.repos.filter(
   (r) => r.statut === "actif" && r.kit_version && r.kit_version !== version && (!ONLY || r.repo === ONLY),
 );

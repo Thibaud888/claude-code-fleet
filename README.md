@@ -37,14 +37,16 @@ README.md                ← tu es ici (index)
 GUIDE.md                 ← mode d'emploi complet (acteurs, schémas, bonnes pratiques)
 LICENSE                  ← MIT
 fleet/
-  fleet.example.json     ← schéma du registre de flotte (source unique : types, crons, kit, statut)
+  fleet.example.json     ← schéma du registre de flotte (source unique : types, crons, kit,
+                            statut du projet, à quoi il sert, où il est en ligne)
   OBSERVABILITE.md       ← ntfy / Healthchecks / self-heal en détail
 scripts/
   fleet.mjs              ← rafraîchit le registre (auto-découverte GitHub via gh)
+  projets.mjs            ← la vue d'ensemble des projets (lue par /projets, sans réseau)
   guard.mjs · check.mjs  ← hooks de session (anti push-main/secrets ; vérif post-édition)
   guard.test.mjs         ← tests du hook guard
-  brief-data.mjs · tokens-hebdo.mjs · ntfy.mjs · statusline.mjs · gist-cleanup.mjs · hygiene.ps1
-.claude/skills/          ← /backlog /dispatch (versionnées → dispo aussi en session Cloud)
+  brief-data.mjs · tokens-hebdo.mjs · ntfy.mjs · statusline.mjs · hygiene.ps1
+.claude/skills/          ← /projets /backlog /dispatch (versionnées → dispo aussi en Cloud)
 skills/                  ← /equiper /nouveau-projet (locaux)
 harvest/
   harvest-console.js     ← snippet console : moisson des sessions Cloud (0 token)
@@ -56,15 +58,17 @@ socle-local/             ← modèle de ~/.claude : CLAUDE.example.md, settings.
 ## 🧩 Ce que tu trouves ici
 
 - **Une méthode** documentée de bout en bout ([GUIDE.md](GUIDE.md)) : local vs Cloud, le
-  registre unique, le dispatch (1 item de backlog = 1 issue = 1 session Cloud = 1 PR),
-  l'observabilité (ntfy → Healthchecks → self-heal), la moisson des sessions Cloud.
+  registre unique, le **cycle de vie d'un projet** (actif → veille → archivé), le dispatch
+  (1 item de backlog = 1 issue = 1 session Cloud = 1 PR), l'observabilité (ntfy →
+  Healthchecks → self-heal), la moisson des sessions Cloud.
 - **Deux hooks** prêts à l'emploi : [`guard.mjs`](scripts/guard.mjs) (bloque le push direct sur
   `main` d'un repo projet + tout secret en clair) et [`check.mjs`](scripts/check.mjs) (relance le
   check du projet après chaque édition, réinjecte seulement les échecs). 0 token.
-- **Des scripts d'orchestration** : auto-découverte du registre, collecte du brief en un appel,
-  bilan tokens, notifications ntfy, purge de gists.
-- **Des commandes maison (skills)** : `/backlog`, `/dispatch`, `/equiper`, `/nouveau-projet`
-  (+ `/bilan`, `/handoff`, `/reprends` — livrées par `fleet-kit` sur chaque repo équipé).
+- **Des scripts d'orchestration** : auto-découverte du registre, vue d'ensemble des projets,
+  collecte du brief en un appel, bilan tokens, notifications ntfy.
+- **Des commandes maison (skills)** : `/projets`, `/backlog`, `/dispatch`, `/equiper`,
+  `/nouveau-projet` (+ `/bilan`, `/handoff`, `/reprends` — livrées par `fleet-kit` sur chaque
+  repo équipé).
 
 > 🔗 **Dépôt compagnon :** [`fleet-kit`](https://github.com/Thibaud888/fleet-kit) (public)
 > héberge les **workflows GitHub Actions réutilisables** + les templates posés sur chaque repo
@@ -75,12 +79,14 @@ socle-local/             ← modèle de ~/.claude : CLAUDE.example.md, settings.
 ## ⚡ Essai à blanc (2 minutes, sans rien configurer)
 
 ```bash
-node scripts/guard.test.mjs      # la suite du hook anti push-main / anti-secrets (17 cas, hors ligne)
+node scripts/guard.test.mjs      # la suite du hook anti push-main / anti-secrets (34 cas, hors ligne)
 
 # Génère fleet/fleet.json depuis TES repos (gh requis) — bash :
 FLEET_OWNER=VOTRE-COMPTE node scripts/fleet.mjs
 # …ou PowerShell :
 $env:FLEET_OWNER='VOTRE-COMPTE'; node scripts/fleet.mjs
+
+node scripts/projets.mjs         # ce que tu as construit, à quoi ça sert, où c'est en ligne
 ```
 
 ## 🔧 Adapter à ton usage

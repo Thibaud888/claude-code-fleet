@@ -15,6 +15,10 @@ Contrainte machine : scripts en **Node ou Python** (jamais PowerShell).
 ### 1. Collecte (sans clones)
 - Lire `fleet/fleet.json`. Repos candidats : `statut == "actif"` **et** `dispatchable == true`
   (= une issue labellisée `claude` y lance une session qui peut livrer sa PR).
+  `statut` dit où en est le **projet** : `actif` (en cours de développement) · `veille` (v1
+  sortie et en service, plus de dev) · `archivé` (fini). On ne dispatche que sur `actif` — un
+  projet livré est justement celui sur lequel on a décidé de ne plus lancer de sessions. Pour le
+  reprendre : `/projets statut <repo> actif`, et son backlog réapparaît en entier.
   Ne PAS filtrer sur `kit_version` : les repos méta (`claude-ops`, `fleet-kit`) dispatchent sans
   porter la version du kit. Ne pas se fier au stub `claude.yml` seul non plus : sans le secret
   `CLAUDE_CODE_OAUTH_TOKEN`, ou si Actions n'a pas le droit de créer des PR, la session brûle des

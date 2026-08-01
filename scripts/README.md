@@ -8,11 +8,47 @@
 
 Rafraîchit `fleet/fleet.json` par auto-découverte (`gh repo list`) : type, visibilité, branche
 par défaut, `.kit-version` installée, workflows planifiés (crons). Préserve les champs édités
-à la main (`type`, `statut`, `notes`). C'est **LA** liste des repos que lisent `/dispatch`,
-le brief quotidien, la veille mensuelle et l'hygiène — aucune liste en dur ailleurs.
+à la main (`type`, `statut`, `notes`, `pitch`, `site`). C'est **LA** liste des repos que lisent
+`/projets`, `/dispatch`, le brief quotidien, la veille mensuelle et l'hygiène — aucune liste en
+dur ailleurs.
+
+`pitch` (à quoi sert le projet) et `site` (où il est en ligne) sont **re-devinés tant qu'ils
+sont vides** — depuis la *Description* et le *Website* du repo sur GitHub, sinon depuis GitHub
+Pages. Renseignés une fois, à la main ou par détection, ils ne bougent plus. En fin de passage,
+le script liste les fiches incomplètes.
 
 ```bash
 node scripts/fleet.mjs
+node scripts/fleet.mjs --repo <nom>   # une seule entrée recalculée, les autres recopiées
+```
+
+## `projets.mjs` — la vue d'ensemble des projets
+
+Ce que lit la skill `/projets` : ce qui existe, à quoi ça sert, où c'est en ligne et où ça en
+est. **Zéro appel réseau** — tout vient de `fleet/fleet.json`, déjà présent dans le checkout.
+C'est ce qui rend la vue instantanée là où `/backlog` doit interroger tous les repos, et lisible
+depuis un téléphone.
+
+Les projets sont groupés par `statut`, le **cycle de vie à trois états** du registre :
+
+| Statut | Ce que ça veut dire | Effet |
+|---|---|---|
+| 🟢 `actif` | on développe encore | apparaît dans `/backlog` et `/dispatch` |
+| 🔵 `veille` | v1 sortie, plus de développement prévu | **sort** de `/backlog` et `/dispatch` |
+| ⚪ `archivé` | terminé | idem |
+
+Le point qui compte : `statut` dit si on **développe**, jamais si le projet est **en service**.
+La surveillance suit les `crons` — un repo qui porte un cron reste dans le brief et le bilan de
+tokens, même `archivé`. Passer un projet en `veille` le sort donc du backlog **sans qu'on ait à
+vider son `BACKLOG.md`** : les tâches restent écrites, elles cessent seulement d'être proposées.
+
+Les repos de type `meta`/`contenu` sont écartés vers un pied « Outillage & notes » (ce ne sont
+pas des projets), et tout statut inconnu tombe dans Terminé plutôt que d'être perdu.
+
+```bash
+node scripts/projets.mjs            # markdown lisible
+node scripts/projets.mjs --widget   # JSON compact, injecté dans le widget de la skill
+node scripts/projets.mjs <nom>      # la fiche d'un projet
 ```
 
 ## `kit-propager.mjs` — propager le kit vers la flotte
@@ -255,7 +291,8 @@ Unregister-ScheduledTask -TaskName "ClaudeOps-HygieneGitHub" -Confirm:$false   #
 | `brief-rade.mjs` · `token-canari.mjs` | volets de `brief-data.mjs`, isolés pour être testables sans réseau (`*.test.mjs`) | aucun — fonctions pures, on leur passe les données |
 | `tokens-hebdo.mjs` | bilan tokens hebdo (local ccusage + cloud Actions) | `npx ccusage` (réseau) · `gh` authentifié · `fleet/fleet.json` |
 | `kit-propager.mjs` | propage le kit vers les repos en retard (PR + merge) | `gh` authentifié avec le droit de créer des PR sur toute la flotte · `fleet/fleet.json` |
-| `backlog-collect.mjs` | agrège les `BACKLOG.md` de la flotte en un JSON (lu par `/backlog`) | `gh` authentifié · `fleet/fleet.json` |
+| `backlog-collect.mjs` | agrège les `BACKLOG.md` de la flotte en un JSON (lu par `/backlog`) ; `--widget` sort la version sans détails, seule à tenir dans un contexte de session | `gh` authentifié · `fleet/fleet.json` |
+| `projets.mjs` | vue d'ensemble des projets par état (lue par `/projets`) | aucun — lit `fleet/fleet.json`, sans réseau |
 | `socle-sync.mjs` | recopie `~/.claude` → `socle-local/` pour que le socle versionné ne dérive pas | aucun — lit le socle local |
 | `meta-ratio.mjs` | part du **méta** dans l'activité de la flotte (lu par la revue mensuelle) | `gh` authentifié · `fleet/fleet.json` |
 | `ntfy.mjs` | notification téléphone (`node scripts/ntfy.mjs "titre" "corps"`) | topic dans env `NTFY_TOPIC` ou fichier `~/.claude/ntfy-topic` |

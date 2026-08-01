@@ -210,17 +210,42 @@ La flotte, c'est l'ensemble de tes repos. Le **registre** (`fleet/fleet.json`, g
 `node scripts/fleet.mjs` — modèle versionné : [`fleet/fleet.example.json`](fleet/fleet.example.json))
 en est la carte unique.
 
-- **Une seule source, jamais de liste en dur.** Le registre est lu par `/dispatch`, le brief
-  hebdo, la revue mensuelle, la propagation du kit et l'hygiène. Si tu as besoin de « la liste de mes repos »,
-  c'est ici — nulle part ailleurs.
+- **Une seule source, jamais de liste en dur.** Le registre est lu par `/projets`, `/dispatch`,
+  le brief hebdo, la revue mensuelle, la propagation du kit et l'hygiène. Si tu as besoin de
+  « la liste de mes repos », c'est ici — nulle part ailleurs.
 - **Auto-découvert.** [`scripts/fleet.mjs`](scripts/fleet.mjs) interroge GitHub (`gh repo list`)
   et remplit pour chaque repo : visibilité, branche par défaut, `type`, `.kit-version`
   installée, workflows planifiés (crons). Les champs que tu édites à la main (`type`, `statut`,
-  `notes`) sont **préservés**.
-- **Rafraîchir :** `node scripts/fleet.mjs` (nécessite `gh` authentifié). `/equiper` le fait
+  `notes`, `pitch`, `site`) sont **préservés** — `pitch` et `site` sont re-devinés depuis la
+  *Description* et le *Website* GitHub **tant qu'ils sont vides**, puis laissés tranquilles.
+- **Rafraîchir :** `node scripts/fleet.mjs` (nécessite `gh` authentifié), ou
+  `node scripts/fleet.mjs --repo <nom>` pour une seule entrée. `/equiper` le fait
   automatiquement à la fin.
 
-Chaque repo a un **type**, qui décide de ce que le kit lui pose :
+### Le cycle de vie d'un projet : trois états
+
+Un projet ne reste pas éternellement « en cours ». Le champ `statut` du registre dit **où il en
+est**, et c'est lui qui décide de ce qu'on te propose de faire :
+
+| Statut | Ce que ça veut dire | Effet |
+|---|---|---|
+| 🟢 `actif` | on développe encore | apparaît dans `/backlog` et `/dispatch` |
+| 🔵 `veille` | v1 sortie, plus de développement prévu | **sort** de `/backlog` et `/dispatch` |
+| ⚪ `archivé` | terminé | idem |
+
+Deux choses à ne pas confondre, et c'est tout l'intérêt du mécanisme :
+
+- **`statut` dit si on développe, pas si ça tourne.** La surveillance suit les `crons` : un repo
+  qui porte un cron reste dans le brief et le bilan de tokens **même `archivé`**. Un projet fini
+  dont le job de nuit continue de tourner doit rester surveillé — sinon il meurt en silence.
+- **Passer en `veille` ne vide pas le `BACKLOG.md`.** Les tâches restent écrites là où elles
+  sont ; elles cessent seulement d'être proposées. C'est la réponse à « ce projet est fini, mais
+  j'avais encore trois idées » — on ne perd rien, on arrête juste de les remonter chaque semaine.
+
+`/projets` est la vue qui va avec (§10) : ce qui existe, à quoi ça sert, où c'est en ligne, où
+ça en est. Changer l'état d'un projet se dit en langage courant (« ce projet est terminé »).
+
+Chaque repo a aussi un **type**, qui décide de ce que le kit lui pose :
 
 | Type | Exemple | Déploiement typique |
 |---|---|---|
@@ -414,17 +439,18 @@ ne s'exécutent que quand ton app/ta machine est allumée).
 
 ## 10. Les commandes maison (skills)
 
-Sept skills industrialisent ta méthode, installées dans `~/.claude/skills/` par **jonction NTFS**
+Huit skills industrialisent ta méthode, installées dans `~/.claude/skills/` par **jonction NTFS**
 (la source est vue immédiatement, sans copie). Elles sont **réparties selon leur portée cloud**
 (une session Cloud ne lit que le `.claude/skills/` du repo ouvert, jamais ton `~/.claude/`) :
-`/backlog` et `/dispatch` dans `claude-ops/.claude/skills/` ; `/bilan`, `/handoff`, `/reprends`
-dans `fleet-kit` (posées dans chaque repo équipé par `/equiper`) ; `/equiper` et `/nouveau-projet`,
-outils locaux, dans [`skills/`](skills/).
-(Cet extrait public ne versionne que les **quatre** skills qui vivent dans ce repo ; les trois
+`/projets`, `/backlog` et `/dispatch` dans `claude-ops/.claude/skills/` ; `/bilan`, `/handoff`,
+`/reprends` dans `fleet-kit` (posées dans chaque repo équipé par `/equiper`) ; `/equiper` et
+`/nouveau-projet`, outils locaux, dans [`skills/`](skills/).
+(Cet extrait public ne versionne que les **cinq** skills qui vivent dans ce repo ; les trois
 autres sont dans `fleet-kit` — d'où l'écart avec le compte du README.)
 
 | Skill | Quand l'invoquer | Produit |
 |---|---|---|
+| [`/projets`](.claude/skills/projets/SKILL.md) | « mes projets », « c'est quoi déjà ce projet », « l'URL de `<projet>` », « `<projet>` est terminé » | ce qui existe, à quoi ça sert, où c'est en ligne, où ça en est ; répond aussi sur la doc d'un projet, et change son état |
 | [`/backlog`](.claude/skills/backlog/SKILL.md) | « qu'est-ce qu'il reste à faire », `/backlog <repo> <n°> [cloud]` | vue agrégée des BACKLOG.md de la flotte ; traite un item **dans la session courante** (local) ou l'envoie en issue `claude` |
 | [`/dispatch`](.claude/skills/dispatch/SKILL.md) | « distribue le backlog », « où en sont les sessions » | issues `claude` labellisées, ou statut des sessions en cours |
 | [`/bilan`](https://github.com/Thibaud888/fleet-kit/blob/main/templates/common/.claude/skills/bilan/SKILL.md) | « on s'arrête », « fais le point » | BACKLOG à jour + mémoire écrite + handoff éventuel + récap des PR |
@@ -437,6 +463,11 @@ autres sont dans `fleet-kit` — d'où l'écart avec le compte du README.)
 > taille, anti-collision, plafond 5). `/backlog` = **consultation** de toutes les tâches + geste
 > **unitaire**, avec le choix local (session courante — pour l'ambigu ou le gros) ou cloud
 > (fire-and-forget). FleetView offre les mêmes gestes depuis le téléphone (⚡ issue, 🌩 session cloud).
+
+> **`/projets` ou `/backlog` ?** `/projets` répond à « **qu'est-ce que j'ai construit** » —
+> ce qui existe, son lien, son état. `/backlog` répond à « **qu'est-ce qu'il me reste à
+> faire** ». Le premier ne fait aucun appel réseau (tout est dans le registre), le second
+> interroge chaque repo : c'est pourquoi `/projets` reste instantané, même depuis un téléphone.
 
 ---
 
@@ -572,13 +603,15 @@ claude-ops/
 │   ├── usage-cloud.md        ← analyse des transcripts Cloud
 │   └── hygiene/              ← rapports d'hygiène datés
 ├── fleet/
-│   ├── fleet.json            ← ⭐ LE registre de flotte (source unique)
+│   ├── fleet.json            ← ⭐ LE registre de flotte (source unique : type, crons, kit,
+│   │                            statut du projet, à quoi il sert, où il est en ligne)
 │   └── OBSERVABILITE.md      ← ntfy / Healthchecks / self-heal en détail
 ├── chantiers/
 │   ├── BACKLOG.md            ← portefeuille des chantiers d'optimisation
 │   └── <chantier>.md         ← 1 fichier = 1 prompt de handoff autonome
 ├── scripts/
 │   ├── fleet.mjs             ← rafraîchit le registre (auto-découverte)
+│   ├── projets.mjs           ← vue d'ensemble des projets par état (sans réseau)
 │   ├── kit-propager.mjs      ← propage le kit vers les repos en retard (PR + merge)
 │   ├── brief-data.mjs        ← toute la collecte du brief en 1 appel
 │   ├── tokens-hebdo.mjs      ← collecte du bilan tokens (archive du dimanche)
@@ -587,7 +620,7 @@ claude-ops/
 │   ├── guard.mjs             ← hook : anti push-main + anti-secrets
 │   ├── check.mjs             ← hook : vérif post-édition
 │   └── hygiene.ps1           ← hygiène GitHub hebdo + synchro du socle (lancée par Windows)
-├── .claude/skills/           ← /backlog /dispatch (versionnées → lues aussi en session Cloud)
+├── .claude/skills/           ← /projets /backlog /dispatch (versionnées → lues aussi en Cloud)
 ├── skills/                   ← /equiper /nouveau-projet (outils locaux)
 │   └── <skill>/SKILL.md      ← (/bilan /handoff /reprends : désormais dans fleet-kit, posées par /equiper)
 ├── examples/workflows/       ← workflows d'exemple, livrés INERTES (brief, dispatch, codex — à activer)

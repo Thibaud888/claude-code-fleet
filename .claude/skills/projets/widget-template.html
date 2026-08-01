@@ -1,0 +1,51 @@
+<h2 class="sr-only">Vue d'ensemble des projets : état d'avancement, description et lien vers le site en ligne.</h2>
+<style>
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+#pj .card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:0.85rem 1.1rem;margin:0 0 10px}
+#pj .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding-bottom:6px}
+#pj .etat{font-size:15px;font-weight:500}
+#pj .count{font-size:12px;color:var(--text-muted);margin-left:auto}
+#pj .item{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:7px 0;border-top:0.5px solid var(--border)}
+#pj .n{font-family:var(--font-mono);font-size:14px;cursor:pointer}
+#pj .p{flex:1;min-width:170px;font-size:13px;color:var(--text-secondary)}
+#pj .p.vide{color:var(--text-muted);font-style:italic}
+#pj .lien{font-size:13px;white-space:nowrap}
+#pj-outils{font-size:13px;color:var(--text-muted);margin:2px 0 12px}
+#pj-bar{display:flex;gap:8px;flex-wrap:wrap}
+#pj-bar button{font-size:13px}
+</style>
+<div id="pj"></div>
+<p id="pj-outils"></p>
+<div id="pj-bar">
+<button data-g="">Actualiser ↗</button>
+<button data-g="statut">Changer un état ↗</button>
+</div>
+<script>
+const DATA={cours:[],livre:[],termine:[],outillage:[]};
+const ETATS=[["cours","progress","accent","En cours"],["livre","rocket","success","Livré"],
+["termine","archive","muted","Terminé"]];
+const esc=s=>s==null?"":String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// Le domaine suffit à reconnaître un site et tient sur un écran de téléphone ; l'URL entière
+// reste dans le href. Une URL bricolée à la main ne doit pas faire disparaître la ligne.
+const court=u=>{try{return new URL(u).hostname.replace(/^www\./,"")}catch{return u}};
+document.getElementById("pj").innerHTML=ETATS.map(([cle,icone,ton,label])=>{
+const ps=DATA[cle]||[];
+if(!ps.length)return"";
+return `<div class="card"><div class="head"><span class="etat" style="color:var(--text-${ton})">`
++`<i class="ti ti-${icone}" aria-hidden="true"></i> ${label}</span>`
++`<span class="count">${ps.length} projet${ps.length>1?"s":""}</span></div>`
++ps.map(p=>`<div class="item"><span class="n" data-g="${esc(p.n)}">${esc(p.n)}</span>`
++(p.p?`<span class="p">${esc(p.p)}</span>`:`<span class="p vide">à décrire</span>`)
++(p.u?`<a class="lien" href="${esc(p.u)}" target="_blank" rel="noopener" title="${esc(p.u)}" aria-label="Ouvrir ${esc(p.n)} : ${esc(p.u)}"><i class="ti ti-external-link" aria-hidden="true"></i> ${esc(court(p.u))}</a>`:"")
++`</div>`).join("")+`</div>`;
+}).join("");
+if(DATA.outillage&&DATA.outillage.length)document.getElementById("pj-outils").textContent=
+"Outillage & notes : "+DATA.outillage.join(" · ");
+document.addEventListener("click",e=>{
+// Un lien de site ouvre le site : il ne parle pas à la session. Sans ce garde-fou, le clic
+// remonterait jusqu'à la ligne et enverrait une question EN PLUS d'ouvrir l'onglet.
+if(e.target.closest("a"))return;
+const b=e.target.closest("[data-g]");
+if(b)sendPrompt(("/projets "+b.dataset.g).trim());
+});
+</script>

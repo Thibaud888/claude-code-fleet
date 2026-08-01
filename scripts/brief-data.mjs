@@ -61,7 +61,16 @@ const ageHeures = (iso) => Math.floor((MAINTENANT - Date.parse(iso)) / 3_600_000
 
 // ---------- 1. Flotte ----------
 const fleet = JSON.parse(readFileSync(join(ROOT, "fleet", "fleet.json"), "utf8"));
-const actifs = fleet.repos.filter((r) => r.statut === "actif");
+// Ce qui TOURNE se surveille, quel que soit l'état du projet. Le `statut` dit si on DÉVELOPPE
+// encore, pas si quelque chose est en service : un projet « terminé » peut n'avoir plus QUE son
+// cron, et c'en est même souvent tout l'intérêt (un digest hebdomadaire qui part tout seul).
+// « Je n'y touche plus » ne veut pas dire « je me fiche qu'il casse » — une panne doit remonter,
+// et le projet se repasse en `actif` le temps de la réparer. On filtre sur les crons parce que
+// c'est ce que le brief sait mesurer : des runs de workflow. Un site sans workflow (Render,
+// Vercel) n'est de toute façon pas testé ici.
+const VIVANTS = new Set(["actif", "veille"]); // projets sur lesquels on travaille encore
+const aUnCron = (r) => (r.crons?.length ?? 0) > 0;
+const actifs = fleet.repos.filter((r) => VIVANTS.has(r.statut) || aUnCron(r));
 
 // ---------- 2. PRs + état courant des workflows par repo (parallèle, plafond 6) ----------
 const CONCLUSIONS_ECHEC = new Set(["failure", "startup_failure", "timed_out"]);
@@ -74,7 +83,10 @@ const parRepo = await enParallele(actifs, 6, async (r) => {
   ]);
   const obtenu = prsRaw !== null && runsRaw !== null;
   const runsList = runsRaw ? JSON.parse(runsRaw) : [];
-  const prs = (prsRaw ? JSON.parse(prsRaw) : []).map((p) => ({
+  // Un projet qu'on ne développe plus est ici pour ses PANNES, pas pour ses PR : une PR restée
+  // dormante sur un projet terminé reviendrait dans le brief chaque semaine sans qu'on ait
+  // l'intention d'y toucher — exactement ce qu'on cherchait à sortir de la tête.
+  const prs = !VIVANTS.has(r.statut) ? [] : (prsRaw ? JSON.parse(prsRaw) : []).map((p) => ({
     n: p.number, titre: p.title, age_j: ageJours(p.createdAt), age_h: ageHeures(p.createdAt),
     draft: p.isDraft, url: p.url,
     // Suivi de dispatch : une PR de session porte une branche `claude/…` (voir brief-rade.mjs).
@@ -238,6 +250,59 @@ try {
   erreurs.push(`healthchecks : ${e.message}`);
 }
 
+// ---------- 4bis. Dépense API réelle du mois (console Anthropic) ----------
+// Le seul poste facturé à l'usage est un service hébergé hors de cette machine, qui porte sa
+// propre clé API : il est donc invisible pour ccusage (local) comme pour les bilans Actions.
+// Le rapport de coûts de l'organisation le voit, lui — et il voit TOUT, ce qui est
+// exactement la question posée (« ce que me coûte l'API ce mois-ci »).
+//
+// Clé : `ANTHROPIC_ADMIN_KEY` (secret du repo en cloud) ou `~/.claude/anthropic-admin-key`
+// en local. C'est une clé ADMIN (console Anthropic → Settings → Admin keys), pas la clé
+// d'inférence : les deux ne sont pas interchangeables. Absente → `null` sans erreur, parce
+// que ne pas l'avoir posée est un état normal, pas une panne.
+let coutApiMois = null;
+let cleAdminTrouvee = false;
+try {
+  const cle = (process.env.ANTHROPIC_ADMIN_KEY
+    ?? readFileSync(join(homedir(), ".claude", "anthropic-admin-key"), "utf8")).trim();
+  cleAdminTrouvee = cle.length > 0;
+  const debutMois = new Date(Date.UTC(new Date(MAINTENANT).getUTCFullYear(), new Date(MAINTENANT).getUTCMonth(), 1));
+  const url = new URL("https://api.anthropic.com/v1/organizations/cost_report");
+  url.searchParams.set("starting_at", debutMois.toISOString());
+  url.searchParams.set("bucket_width", "1d");
+  url.searchParams.set("limit", "31");
+  let page = null, cents = 0, seaux = 0;
+  do {
+    if (page) url.searchParams.set("page", page); else url.searchParams.delete("page");
+    const rep = await fetch(url, {
+      headers: { "x-api-key": cle, "anthropic-version": "2023-06-01" },
+    });
+    if (!rep.ok) throw new Error(`HTTP ${rep.status}`);
+    const j = await rep.json();
+    for (const seau of j.data ?? []) {
+      seaux += 1;
+      // `amount` est une chaîne décimale en plus petite unité (cents pour USD).
+      for (const r of seau.results ?? []) cents += Number(r.amount ?? 0);
+    }
+    page = j.has_more ? j.next_page : null;
+  } while (page);
+  coutApiMois = {
+    note: "dépense API réelle de l'organisation depuis le 1er du mois (rapport de coûts de la console) — couvre l'assistant Telegram, invisible pour ccusage",
+    depuis: debutMois.toISOString().slice(0, 10),
+    jours_couverts: seaux,
+    cout_usd: Math.round(cents) / 100,
+  };
+} catch (e) {
+  // Distinguer les deux cas, sinon un appel qui échoue se lit « clé absente » et l'utilisateur
+  // repose une clé qui était déjà là. Clé jamais posée = geste manquant, pas panne : pas
+  // d'entrée dans `erreurs`, qui sert au 🔴 du brief.
+  if (cleAdminTrouvee) {
+    erreurs.push(`cout_api_mois : ${e.message}`);
+  } else {
+    coutApiMois = { indisponible: "clé admin absente (secret ANTHROPIC_ADMIN_KEY, ou ~/.claude/anthropic-admin-key)" };
+  }
+}
+
 // ---------- 5. Usage local Claude Code (ccusage — coût équivalent API de l'abonnement) ----------
 // BRIEF_CLOUD : sur un runner cloud (GitHub Actions) il n'y a pas de données ccusage locales —
 // on saute le bloc pour éviter une erreur systématique dans `erreurs`. usage_local reste null.
@@ -284,5 +349,6 @@ process.stdout.write(JSON.stringify({
   sessions_cloud_7j: sessionsCloud7j,
   pct_meta_7j: pctMeta7j,
   healthchecks,
+  cout_api_mois: coutApiMois,
   usage_local: usageLocal,
 }, null, 1) + "\n");

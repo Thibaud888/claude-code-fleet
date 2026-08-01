@@ -8,7 +8,7 @@
 ## Règles de travail (flotte)
 - **Lis `MAP.md` avant toute exploration** ; n'explore que ce qu'elle ne couvre pas.
   *(Ce repo n'en a pas encore : commence par `README.md` puis `GUIDE.md`.)*
-- **Aucune session ne rend la main sans avoir vérifié** : lance `npm test` (les 6 suites des
+- **Aucune session ne rend la main sans avoir vérifié** : lance `npm test` (les 7 suites des
   scripts de pilotage) et regarde le résultat avant de conclure.
 - **Branche + PR** — ⚠️ **exception assumée sur CE repo** : c'est un repo **méta**, le commit
   direct sur `main` y est autorisé (comme sur `fleet-kit`), parce qu'une PR + CI pour une ligne
@@ -38,24 +38,31 @@
 
 ## Stack & commandes
 - Stack : **Node pur**, sans dépendance (bibliothèque standard uniquement), scripts en `.mjs`.
-- Test : `npm test` — les 6 suites (`backlog-collect`, `brief-rade`, `collecte`, `guard`,
-  `regles-flotte`, `token-canari`), sans réseau.
+- Test : `npm test` — les 7 suites (`backlog-collect`, `brief-rade`, `collecte`, `guard`,
+  `projets`, `regles-flotte`, `token-canari`), sans réseau.
 - Build : aucun.
 - ⚠️ **Jamais de PowerShell** dans un script destiné aux sessions : il est bloqué pour Claude
   sur cette machine. Node ou Python. (`hygiene.ps1` est une tâche planifiée **humaine**, à part.)
 
 ## Architecture
-- `fleet/fleet.json` — **le registre** : LA liste des repos, leurs crons, leur version de kit et
-  leur `dispatchable`. Généré par `scripts/fleet.mjs` ; ne jamais tenir une liste de repos ailleurs.
+- `fleet/fleet.json` — **le registre** : LA liste des repos, leurs crons, leur version de kit,
+  leur `dispatchable`, et pour chacun son `statut` (`actif` / `veille` / `archivé`), son `pitch`
+  et son `site`. Généré par `scripts/fleet.mjs` ; ne jamais tenir une liste de repos ailleurs.
+  Le `statut` dit si on **développe** encore : un projet en `veille` (v1 sortie, plus de dev)
+  sort de `/backlog` et de `/dispatch` sans qu'on vide son BACKLOG.md. Il ne dit pas ce qui est
+  **en service** — la surveillance suit les `crons`, donc **tout repo ayant un cron reste dans le
+  brief et le bilan de tokens, même `archivé`**. Voir `.claude/skills/projets/SKILL.md`.
 - `scripts/` — le pilotage : `brief-data.mjs` (+ `brief-rade.mjs`), `tokens-hebdo.mjs`,
-  `kit-propager.mjs` (+ `regles-flotte.mjs`), `backlog-collect.mjs`, `publier-extrait.mjs`,
-  `socle-sync.mjs`, `collecte.mjs` (helper réseau partagé), `guard.mjs` / `check.mjs` (hooks).
+  `kit-propager.mjs` (+ `regles-flotte.mjs`), `backlog-collect.mjs`, `projets.mjs`,
+  `publier-extrait.mjs`, `socle-sync.mjs`, `collecte.mjs` (helper réseau partagé),
+  `guard.mjs` / `check.mjs` (hooks).
 - `.github/workflows/` — 4 crons : `codex-cadrage` (quotidien), `brief-hebdo`, `fleet-refresh`,
   `kit-propagation` (lundi), plus `ci.yml`. ⚠️ Modifiables **en session locale seulement** :
   le token de l'app GitHub n'a pas la permission `workflows`.
 - `rapport/` — diagnostic, audits, hygiène hebdomadaire, bilans de tokens. `chantiers/` — fiches
   de chantier et suivi. `socle-local/` — sauvegarde versionnée du socle et de la mémoire.
-- `.claude/skills/` — `backlog` et `dispatch` (skills de flotte, lues en session locale).
+- `.claude/skills/` — `projets`, `backlog` et `dispatch` (skills de flotte, lues en session locale
+  comme en session Cloud ouverte sur ce repo).
 
 ## Pièges connus
 - **Le repo est privé, son miroir `claude-code-fleet` est public.** Toute modification d'un
