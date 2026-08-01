@@ -12,18 +12,18 @@ le cloud saura les trouver :
 
 | Skill | Source | Dispo en Cloud… |
 |---|---|---|
-| `/backlog`, `/dispatch` | `claude-ops/.claude/skills/` (ici même) | …en ouvrant **claude-ops** (tour de contrôle de la flotte) |
+| `/projets`, `/backlog`, `/dispatch` | `claude-ops/.claude/skills/` (ici même) | …en ouvrant **claude-ops** (tour de contrôle de la flotte) |
 | `/bilan`, `/handoff`, `/reprends` | `fleet-kit/templates/common/.claude/skills/` → posées dans **chaque repo** par `/equiper` | …dans **tout repo équipé** (là où tu travailles) |
 | `/equiper`, `/nouveau-projet` | `claude-ops/skills/` (ce dossier) | — outils **locaux** (gèrent des clones sur ta machine) |
 
 ## Installation locale (jonctions NTFS — déjà faite sur cette machine)
 
 `~/.claude/skills/<name>` → dossier source (via `mklink /J`, sans droits admin). Cibles actuelles :
-- `backlog`, `dispatch` → `claude-ops/.claude/skills/`
+- `projets`, `backlog`, `dispatch` → `claude-ops/.claude/skills/`
 - `bilan`, `handoff`, `reprends` → `fleet-kit/templates/common/.claude/skills/`
 - `equiper`, `nouveau-projet` → `claude-ops/skills/`
 
-Sur une autre machine : recréer ces 7 jonctions après clone (`mklink /J <lien> <cible>`).
+Sur une autre machine : recréer ces 8 jonctions après clone (`mklink /J <lien> <cible>`).
 Les jonctions sont **locales** (comme tout `~/.claude` — cf. `socle-local/`).
 
 ## Format

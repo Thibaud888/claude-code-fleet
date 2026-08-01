@@ -142,6 +142,9 @@ function main() {
   const filtre = (args.find((a) => !a.startsWith("--")) ?? "").toLowerCase().trim();
 
   // --- Repos actifs du registre ---
+  // `actif` SEUL, volontairement : c'est ce qui fait qu'un projet passé en `veille` (v1 sortie,
+  // plus de dev) disparaît d'ici sans qu'on ait à vider son BACKLOG.md. Ses items restent dans
+  // le repo et reviennent tous si le projet repasse en `actif`. Cf. /projets.
   const registre = JSON.parse(readFileSync(join(ROOT, "fleet", "fleet.json"), "utf8"));
   let repos = registre.repos.filter((r) => r.statut === "actif");
   if (filtre) repos = repos.filter((r) => r.repo.toLowerCase().includes(filtre));

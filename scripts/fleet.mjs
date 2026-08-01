@@ -10,8 +10,19 @@
 //     stub claude.yml + secret CLAUDE_CODE_OAUTH_TOKEN posé + Actions autorisé à créer des
 //     PR. `dispatch_manque` liste ce qui bloque. Ne PAS se fier à kit_version (les repos
 //     méta ont le stub sans le marqueur) ni au stub seul (sans secret la session échoue) ;
-//   - PRÉSERVE les champs édités à la main dans fleet.json : type, statut, notes.
-// Le registre est LA source que lisent /dispatch, le brief quotidien, la veille
+//   - PRÉSERVE les champs édités à la main dans fleet.json : type, statut, notes, pitch, site.
+//     `pitch` (à quoi ça sert, en une phrase) et `site` (l'URL de la chose en ligne) sont ce que
+//     /projets affiche. Tant qu'ils sont VIDES, ils sont re-devinés à chaque passage — depuis la
+//     description et le site du repo sur GitHub, sinon depuis GitHub Pages. Donc renseigner un
+//     repo depuis l'interface GitHub (y compris au téléphone) suffit à amorcer sa fiche ; dès
+//     qu'un champ est rempli, il est stable et seule une main le rechange.
+//   - `statut` = où en est le DÉVELOPPEMENT du projet (pas une tâche) : `actif` en cours ·
+//     `veille` v1 sortie et en service, plus de dev · `archivé` fini ou abandonné. Il ne dit
+//     PAS ce qui est en service : la surveillance suit les `crons`, donc un repo `archivé`
+//     dont le cron tourne encore reste dans le brief et le bilan de tokens. Chaque lecteur
+//     choisit : /backlog et /dispatch ne voient que `actif`, le kit aussi, le brief voit
+//     `actif` + `veille` + tout ce qui a un cron.
+// Le registre est LA source que lisent /projets, /dispatch, le brief quotidien, la veille
 // mensuelle et l'hygiène hebdo — aucune liste de repos en dur ailleurs.
 //
 // Usage : node scripts/fleet.mjs              → toute la flotte (cron du lundi)
@@ -66,7 +77,7 @@ if (iRepo !== -1 && !cible) {
 console.log(cible ? `Rafraîchissement de ${OWNER}/${cible}...` : `Découverte de la flotte (${OWNER})...`);
 let repos = JSON.parse(
   gh(["repo", "list", OWNER, "--limit", "200", "--json",
-    "name,visibility,isArchived,primaryLanguage,defaultBranchRef"])
+    "name,visibility,isArchived,primaryLanguage,defaultBranchRef,description,homepageUrl"])
 );
 if (cible) {
   repos = repos.filter((r) => r.name === cible);
@@ -77,6 +88,14 @@ if (cible) {
 }
 
 const b64 = (s) => Buffer.from(s.replace(/\n/g, ""), "base64").toString("utf8");
+
+// Dernier recours pour `site` : l'URL GitHub Pages du repo (404 = Pages non activé).
+// Render, Vercel et Netlify ne s'auto-découvrent pas — leurs URL se saisissent à la main, ou
+// dans le champ « Website » du repo sur GitHub. Appelée seulement quand `site` est encore vide
+// (court-circuit du `||`), donc zéro appel de plus une fois la flotte renseignée.
+const urlPages = (name) =>
+  (gh(["api", `repos/${OWNER}/${name}/pages`, "--jq", ".html_url"], true) ?? "").trim();
+
 const entries = [];
 
 for (const repo of repos.sort((a, b) => a.name.localeCompare(b.name))) {
@@ -126,6 +145,8 @@ for (const repo of repos.sort((a, b) => a.name.localeCompare(b.name))) {
   entries.push({
     repo: name,
     type,
+    pitch: old?.pitch || repo.description?.trim() || "",
+    site: old?.site || repo.homepageUrl?.trim() || urlPages(name),
     visibility: repo.visibility.toLowerCase(),
     default_branch: repo.defaultBranchRef?.name ?? null,
     kit_version: kitVersion,
@@ -154,7 +175,7 @@ writeFileSync(
   FLEET_PATH,
   JSON.stringify(
     {
-      _doc: "Registre de flotte — généré par scripts/fleet.mjs. Champs manuels préservés : type, statut, notes. `dispatchable` = une issue labellisée `claude` y lance une session qui peut livrer sa PR (stub claude.yml + secret CLAUDE_CODE_OAUTH_TOKEN + Actions autorisé à créer des PR) ; `dispatch_manque` dit ce qui bloque. C'est le critère de /dispatch — pas kit_version. Lu par /dispatch, brief quotidien, veille mensuelle, hygiène.",
+      _doc: "Registre de flotte — généré par scripts/fleet.mjs. Champs manuels préservés : type, statut, notes, pitch, site. `statut` = où en est le DÉVELOPPEMENT : `actif` (en cours) · `veille` (v1 sortie et en service, plus de dev) · `archivé` (fini ou abandonné). /backlog, /dispatch et la propagation du kit ne voient que `actif`. Le statut ne dit PAS ce qui est en service : la surveillance suit les `crons`, donc un repo `archivé` dont le cron tourne reste dans le brief et le bilan de tokens. `pitch` (à quoi ça sert) et `site` (l'URL en ligne) sont ce qu'affiche /projets : tant qu'ils sont vides ils se redevinent depuis la description et le site du repo sur GitHub, sinon GitHub Pages. `dispatchable` = une issue labellisée `claude` y lance une session qui peut livrer sa PR (stub claude.yml + secret CLAUDE_CODE_OAUTH_TOKEN + Actions autorisé à créer des PR) ; `dispatch_manque` dit ce qui bloque. C'est le critère de /dispatch — pas kit_version. Lu par /projets, /dispatch, brief quotidien, veille mensuelle, hygiène.",
       updated_at: new Date().toISOString().slice(0, 16).replace("T", " "),
       kit_repo: `${OWNER}/fleet-kit`,
       repos: finales,
@@ -165,3 +186,16 @@ writeFileSync(
   "utf8"
 );
 console.log(`Registre écrit : ${FLEET_PATH} (${finales.length} repos${cible ? `, 1 rafraîchi` : ""})`);
+
+// Une fiche /projets sans phrase ne sert à rien, et un projet déployé sans URL est justement ce
+// qu'on cherchait à ne plus avoir à retrouver. On ne réclame d'URL qu'aux types qui en ont une :
+// un cron qui envoie un mail n'a pas de site, et le signaler chaque semaine serait du bruit.
+const AVEC_SITE = new Set(["static", "service-node", "service-python"]);
+const incompletes = (cible ? entries : finales)
+  .map((r) => ({ r, manque: [!r.pitch && "pitch", AVEC_SITE.has(r.type) && !r.site && "site"].filter(Boolean) }))
+  .filter(({ manque }) => manque.length);
+if (incompletes.length) {
+  console.log(`\nFiches /projets à compléter (${incompletes.length}) — à la main dans fleet.json, ou via`);
+  console.log(`Description / Website du repo sur GitHub (repris tels quels au prochain passage) :`);
+  for (const { r, manque } of incompletes) console.log(`  ${r.repo} — manque ${manque.join(" + ")}`);
+}
