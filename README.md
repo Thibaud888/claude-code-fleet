@@ -112,12 +112,10 @@ Rien à faire tourner en aveugle : ce dépôt est un point de départ à personn
    `echo '{"tool_input":{"command":"git push origin main"},"cwd":"<un repo projet>"}' | node scripts/guard.mjs`
    ⚠️ Sous Windows, écris le chemin avec des slashs (`C:/…`) : des backslashes rendraient le
    JSON invalide → le hook fail-open répond « autorisé » et tu conclurais à tort qu'il est mort.
-4. **Prépare GitHub** : labels `claude` / `claude:haiku` / `idée` / `à-préciser` ; un Project
-   utilisateur « Flotte » (kanban du dispatch) ; le réglage par repo « Actions peut créer des
-   PR » ; un PAT fine-grained `FLEET_GH_TOKEN` sur ta flotte — contents **RW**, et en lecture
-   pull-requests / actions / issues (le brief lit PRs, runs et issues ; NB : `gh gist create`
-   n'est pas couvert par les PAT fine-grained → token classique avec scope `gist` si tu actives
-   le gist du brief) ; les secrets
+4. **Prépare GitHub** : labels `claude` / `claude:haiku` / `idée` / `à-préciser` ; le réglage
+   par repo « Actions peut créer des PR » ; un PAT fine-grained `FLEET_GH_TOKEN` sur ta flotte
+   — contents **RW**, et en lecture pull-requests / actions / issues (le brief lit PRs, runs
+   et issues) ; les secrets
    `CLAUDE_CODE_OAUTH_TOKEN` (via `claude setup-token`), `NTFY_TOPIC`, `HEALTHCHECKS_API_KEY`
    selon ce que tu actives. En local : env `HEALTHCHECK_URL_HARVEST` / `HEALTHCHECK_URL_HYGIENE`.
 5. **Active les workflows** en dernier : copie `examples/workflows/*.yml` vers
